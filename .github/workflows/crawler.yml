@@ -205,4 +205,5 @@ jobs:
         with:
           name: site
           path: site
-          if-no-files-found: error
+          # 允许没有生成论文报告时不上传（否则会把整个 workflow 判失败）
+          if-no-files-found: warn
