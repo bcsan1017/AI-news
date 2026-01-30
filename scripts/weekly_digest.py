@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+from datetime import datetime, timedelta
 from pathlib import Path
 
 import requests
@@ -80,6 +81,111 @@ def _get_env_int(key: str, default: int) -> int:
         return int(raw)
     except ValueError:
         return default
+
+
+def _guess_pages_base_url(config: dict) -> str:
+    """
+    推导 GitHub Pages base url：
+    - 优先使用 config.paper_zone.pages_base_url
+    - 否则根据 GITHUB_REPOSITORY 推导为 https://{owner}.github.io/{repo}/
+    """
+    try:
+        paper_cfg = (config.get("PAPER_ZONE") or {}) if isinstance(config, dict) else {}
+        base = (paper_cfg.get("PAGES_BASE_URL") or "").strip()
+        if base:
+            return base if base.endswith("/") else base + "/"
+    except Exception:
+        pass
+
+    repo = (os.environ.get("GITHUB_REPOSITORY", "") or "").strip()
+    if not repo or "/" not in repo:
+        return ""
+    owner, name = repo.split("/", 1)
+    return f"https://{owner}.github.io/{name}/"
+
+
+def _parse_dt_loose(value: str) -> datetime | None:
+    if not value:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        try:
+            return datetime.fromisoformat(s[:19])
+        except Exception:
+            return None
+
+
+def _load_paper_zone_top3_section(config: dict, now: datetime) -> str:
+    """
+    从 site/papers/*/meta.json 读取论文专区报告，取最近 7 天内的 Top3（按 score desc, generated_at desc）
+    """
+    site_dir = Path("site")
+    papers_dir = site_dir / "papers"
+    if not papers_dir.exists():
+        return ""
+
+    metas = []
+    for meta_path in papers_dir.glob("*/meta.json"):
+        try:
+            meta = json.loads(meta_path.read_text(encoding="utf-8"))
+            if not isinstance(meta, dict):
+                continue
+            slug = (meta.get("slug") or "").strip()
+            title = (meta.get("title") or "").strip()
+            if not slug or not title:
+                continue
+            metas.append(meta)
+        except Exception:
+            continue
+
+    if not metas:
+        return ""
+
+    # 仅取最近一周生成的报告（避免长期历史混入周报）
+    now_naive = now.replace(tzinfo=None) if getattr(now, "tzinfo", None) else now
+    cutoff = now_naive - timedelta(days=7)
+
+    filtered = []
+    for m in metas:
+        gen = _parse_dt_loose(str(m.get("generated_at", "") or ""))
+        gen_naive = gen.replace(tzinfo=None) if gen and getattr(gen, "tzinfo", None) else gen
+        if gen_naive and gen_naive >= cutoff:
+            filtered.append(m)
+
+    if not filtered:
+        return ""
+
+    base_url = _guess_pages_base_url(config)
+
+    def sort_key(m: dict):
+        score = int(m.get("score", 0) or 0)
+        gen = _parse_dt_loose(str(m.get("generated_at", "") or "")) or datetime.min
+        gen_naive = gen.replace(tzinfo=None) if getattr(gen, "tzinfo", None) else gen
+        return (-score, gen_naive)
+
+    filtered.sort(key=sort_key)
+    top3 = filtered[:3]
+
+    lines = ["## 📄 论文专区 Top 3（本周入选）", ""]
+    for i, m in enumerate(top3, 1):
+        title = str(m.get("title") or "").strip()
+        slug = str(m.get("slug") or "").strip()
+        score = int(m.get("score", 0) or 0)
+        report_url = f"{base_url}papers/{slug}/" if base_url else f"papers/{slug}/"
+        paper_url = str(m.get("paper_url") or "").strip()
+        extra = []
+        if score:
+            extra.append(f"score {score}")
+        if paper_url:
+            extra.append(f"[原文]({paper_url})")
+        extra_str = (" — " + " · ".join(extra)) if extra else ""
+        lines.append(f"{i}. **[{title}]({report_url})**{extra_str}")
+
+    return "\n".join(lines).strip()
 
 
 def _generate_llm_insights(markdown_report: str, config: dict) -> str:
@@ -242,11 +348,16 @@ def main() -> None:
     # 可选：排行榜（放在 AI 研判摘要之后、正文之前）
     leaderboard_section = _generate_weekly_leaderboard(project_root, now, config)
 
+    # 论文专区 Top3（插入在排行榜之后、正文之前）
+    paper_top3_section = _load_paper_zone_top3_section(config, now)
+
     parts = []
     if llm_section:
         parts.append(llm_section.strip())
     if leaderboard_section:
         parts.append(leaderboard_section.strip())
+    if paper_top3_section:
+        parts.append(paper_top3_section.strip())
     parts.append(base_report.strip())
 
     markdown_report = "\n\n---\n\n".join([p for p in parts if p])

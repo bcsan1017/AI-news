@@ -36,6 +36,15 @@ jobs:
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
+      # 恢复 site/（包含论文专区历史报告与 meta），用于周报插入 Top3 论文链接
+      - name: Restore site cache
+        uses: actions/cache@v4
+        with:
+          path: site
+          key: site-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            site-${{ github.ref_name }}-
+
       - name: Run weekly deep dive (MCP-based)
         env:
           # 从远程存储拉取最近 7 天数据到本地 output（供周报生成读取）
