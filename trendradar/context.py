@@ -246,6 +246,20 @@ class AppContext:
         quiet: bool = False,
     ) -> Tuple[List[Dict], int]:
         """统计词频"""
+        # 关键：增量模式 + 推送窗口时，用“是否已推送过”来决定是否当作“当天第一次”
+        # 这样即使凌晨跑过爬虫但因窗口/周末跳过推送，第二天/窗口开始时仍会推送（不会被“新增检测”吞掉）。
+        is_first_crawl_func = self.is_first_crawl
+        try:
+            if (
+                mode == "incremental"
+                and self.config.get("PUSH_WINDOW", {}).get("ENABLED", False)
+            ):
+                push_manager = self.create_push_manager()
+                is_first_crawl_func = lambda: not push_manager.has_pushed_today()
+        except Exception:
+            # 任何异常都回退到原逻辑，避免影响主链路
+            is_first_crawl_func = self.is_first_crawl
+
         return count_word_frequency(
             results=results,
             word_groups=word_groups,
@@ -259,7 +273,7 @@ class AppContext:
             weight_config=self.weight_config,
             max_news_per_keyword=self.config.get("MAX_NEWS_PER_KEYWORD", 0),
             sort_by_position_first=self.config.get("SORT_BY_POSITION_FIRST", False),
-            is_first_crawl_func=self.is_first_crawl,
+            is_first_crawl_func=is_first_crawl_func,
             convert_time_func=self.convert_time_display,
             quiet=quiet,
         )

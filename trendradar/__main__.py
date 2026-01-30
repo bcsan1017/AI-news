@@ -863,6 +863,7 @@ class NewsAnalyzer:
         html_file_path: Optional[str] = None,
         rss_items: Optional[List[Dict]] = None,
         rss_new_items: Optional[List[Dict]] = None,
+        raw_rss_items: Optional[List[Dict]] = None,
         standalone_data: Optional[Dict] = None,
         ai_result: Optional[AIAnalysisResult] = None,
         current_results: Optional[Dict] = None,
@@ -874,7 +875,23 @@ class NewsAnalyzer:
         # 检查是否有有效内容（热榜或RSS）
         has_news_content = self._has_valid_content(stats, new_titles)
         has_rss_content = bool(rss_items and len(rss_items) > 0)
-        has_any_content = has_news_content or has_rss_content
+        # 论文专区：只要有来自论文 feed 的条目，就认为“有内容”（即使关键词统计为空）
+        paper_cfg = cfg.get("PAPER_ZONE", {}) or {}
+        paper_feed_ids = set((paper_cfg.get("FEED_IDS") or []) if isinstance(paper_cfg, dict) else [])
+        papers_candidate_count = 0
+        if (
+            mode == "incremental"
+            and paper_cfg.get("ENABLED", False)
+            and raw_rss_items
+            and cfg.get("DISPLAY", {}).get("REGIONS", {}).get("PAPERS", True)
+            and paper_feed_ids
+        ):
+            papers_candidate_count = sum(
+                1 for it in raw_rss_items if (it.get("feed_id") or "").strip() in paper_feed_ids
+            )
+        has_papers_source_content = papers_candidate_count > 0
+
+        has_any_content = has_news_content or has_rss_content or has_papers_source_content
 
         # 计算热榜匹配条数
         news_count = sum(len(stat.get("titles", [])) for stat in stats) if stats else 0
@@ -892,7 +909,9 @@ class NewsAnalyzer:
                 content_parts.append(f"热榜 {news_count} 条")
             if rss_count > 0:
                 content_parts.append(f"RSS {rss_count} 条")
-            total_count = news_count + rss_count
+            if papers_candidate_count > 0:
+                content_parts.append(f"论文候选 {papers_candidate_count} 条")
+            total_count = news_count + rss_count + papers_candidate_count
             print(f"[推送] 准备发送：{' + '.join(content_parts)}，合计 {total_count} 条")
 
             # 推送窗口控制
@@ -900,6 +919,13 @@ class NewsAnalyzer:
                 push_manager = self.ctx.create_push_manager()
                 time_range_start = cfg["PUSH_WINDOW"]["TIME_RANGE"]["START"]
                 time_range_end = cfg["PUSH_WINDOW"]["TIME_RANGE"]["END"]
+
+                # 周末跳过（增量预警常用，避免打扰）
+                if cfg["PUSH_WINDOW"].get("SKIP_WEEKENDS", False):
+                    now = self.ctx.get_time()
+                    if now.weekday() >= 5:  # 5=周六, 6=周日
+                        print("推送窗口控制：周末跳过推送")
+                        return False
 
                 if not push_manager.is_in_time_range(time_range_start, time_range_end):
                     now = self.ctx.get_time()
@@ -923,11 +949,101 @@ class NewsAnalyzer:
                         stats, rss_items, mode, report_type, id_to_name, current_results=current_results
                     )
 
+            # 论文专区：在“允许推送”之后再做（避免窗口外消耗 Pro 额度）
+            paper_reports = []
+            if (
+                mode == "incremental"
+                and paper_cfg.get("ENABLED", False)
+                and papers_candidate_count > 0
+                and raw_rss_items
+                and cfg.get("DISPLAY", {}).get("REGIONS", {}).get("PAPERS", True)
+            ):
+                try:
+                    from trendradar.analysis.papers import (
+                        collect_paper_candidates,
+                        decide_high_value_papers,
+                        write_paper_pages,
+                    )
+                    from pathlib import Path
+
+                    project_root = str(Path(__file__).resolve().parents[1])
+                    now = self.ctx.get_time()
+
+                    candidates = collect_paper_candidates(
+                        raw_rss_items=raw_rss_items,
+                        feed_ids=paper_cfg.get("FEED_IDS", []) or [],
+                    )
+                    if candidates:
+                        # 限制候选上限，避免一次性评估过多（小而精）
+                        candidates = sorted(candidates, key=lambda c: c.published_at or "", reverse=True)
+                        preselect = candidates[:30]
+
+                        picked = decide_high_value_papers(
+                            candidates=preselect,
+                            ai_config=cfg.get("AI", {}),
+                            model=paper_cfg.get("MODEL", "gemini-3-pro-preview"),
+                            reasoning_effort=paper_cfg.get("REASONING_EFFORT", "high"),
+                            min_score=int(paper_cfg.get("MIN_SCORE", 70) or 70),
+                            max_reports_per_run=int(paper_cfg.get("MAX_REPORTS_PER_RUN", 3) or 3),
+                            timeout=int(paper_cfg.get("TIMEOUT", 180) or 180),
+                        )
+
+                        if picked:
+                            paper_reports = write_paper_pages(
+                                candidates=preselect,
+                                decisions=picked,
+                                ai_config=cfg.get("AI", {}),
+                                paper_zone_cfg=paper_cfg,
+                                now=now,
+                                project_root=project_root,
+                            )
+
+                            if paper_reports:
+                                print(f"[论文专区] 已生成 {len(paper_reports)} 篇解读报告（将注入本次推送）")
+                except Exception as e:
+                    print(f"[论文专区] 生成失败，已跳过: {type(e).__name__}: {e}")
+
             # 准备报告数据
             report_data = self.ctx.prepare_report(stats, failed_ids, new_titles, id_to_name, mode)
 
+            # 推送前质量闸门：用轻量模型对“粗筛结果”做快速复筛，过滤明显无关内容
+            # 失败会自动降级为“不过滤”，不影响原有推送链路
+            quality_cfg = cfg.get("QUALITY_GATE", {}) or {}
+            if quality_cfg.get("ENABLED", False):
+                try:
+                    from trendradar.ai.quality_gate import AIQualityGate
+
+                    gate = AIQualityGate(ai_config=cfg.get("AI", {}), gate_config=quality_cfg)
+                    report_data, rss_items, rss_new_items, gate_stats = gate.filter_before_send(
+                        report_data=report_data,
+                        mode=mode,
+                        rss_items=rss_items,
+                        rss_new_items=rss_new_items,
+                    )
+
+                    if gate_stats.error:
+                        print(f"[质量闸门] 跳过复筛：{gate_stats.error}")
+                    else:
+                        print(
+                            f"[质量闸门] 复筛完成：总计 {gate_stats.total_items} 条，评估 {gate_stats.evaluated_items} 条，"
+                            f"保留 {gate_stats.kept_items} 条，过滤 {gate_stats.dropped_items} 条"
+                        )
+                except Exception as e:
+                    print(f"[质量闸门] 复筛失败，已跳过过滤: {type(e).__name__}: {e}")
+
+            # 注入论文专区（不参与质量闸门过滤）
+            report_data["papers"] = paper_reports or []
+
             # 是否发送版本更新信息
             update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
+
+            # 如果质量闸门过滤后完全没有内容，跳过本次推送（尤其是增量模式）
+            filtered_news_count = sum(len(s.get("titles", [])) for s in (report_data.get("stats") or []))
+            filtered_rss_count = sum(s.get("count", 0) for s in (rss_items or [])) if rss_items else 0
+            filtered_papers_count = len(report_data.get("papers") or [])
+            if filtered_news_count + filtered_rss_count + filtered_papers_count == 0:
+                print("[推送] 质量闸门过滤后无可推送内容，跳过本次推送")
+                return False
 
             # 使用 NotificationDispatcher 发送到所有渠道（合并热榜+RSS+AI分析+独立展示区）
             dispatcher = self.ctx.create_notification_dispatcher()
@@ -948,12 +1064,11 @@ class NewsAnalyzer:
                 print("未配置任何通知渠道，跳过通知发送")
                 return False
 
-            # 如果成功发送了任何通知，且启用了每天只推一次，则记录推送
-            if (
-                cfg["PUSH_WINDOW"]["ENABLED"]
-                and cfg["PUSH_WINDOW"]["ONCE_PER_DAY"]
-                and any(results.values())
-            ):
+            # 只要推送窗口启用且本次确实发送成功，就记录推送时间
+            # 用途：
+            # - once_per_day=true：控制当天只推一次
+            # - once_per_day=false（增量）：用于“窗口外运行不推送，窗口内继续推送”的基线判断
+            if cfg["PUSH_WINDOW"]["ENABLED"] and any(results.values()):
                 push_manager = self.ctx.create_push_manager()
                 push_manager.record_push(report_type)
 
@@ -1180,12 +1295,28 @@ class NewsAnalyzer:
         rss_new_stats = None
         raw_rss_items = None  # 原始 RSS 条目列表（用于独立展示区）
 
+        # 增量模式 + 推送窗口：如果今天还没成功推送过，则把“首次推送”视角对齐到推送，而不是抓取。
+        # 作用：即使凌晨跑过但因窗口/周末跳过推送，第二天窗口内仍能把当天 RSS 内容推送出来。
+        treat_as_first_push_today = False
+        if self.report_mode == "incremental" and self.ctx.config.get("PUSH_WINDOW", {}).get("ENABLED", False):
+            try:
+                push_manager = self.ctx.create_push_manager()
+                treat_as_first_push_today = not push_manager.has_pushed_today()
+            except Exception:
+                treat_as_first_push_today = False
+
         # 1. 首先获取原始条目（用于独立展示区，不受 display.regions.rss 影响）
         # 根据模式获取原始条目
         if self.report_mode == "incremental":
-            new_items_dict = self.storage_manager.detect_new_rss_items(rss_data)
-            if new_items_dict:
-                raw_rss_items = self._convert_rss_items_to_list(new_items_dict, rss_data.id_to_name)
+            if treat_as_first_push_today:
+                # 以“今天首次推送”为基线：使用当天所有 RSS 条目作为原始条目
+                all_data = self.storage_manager.get_rss_data(rss_data.date)
+                if all_data:
+                    raw_rss_items = self._convert_rss_items_to_list(all_data.items, all_data.id_to_name)
+            else:
+                new_items_dict = self.storage_manager.detect_new_rss_items(rss_data)
+                if new_items_dict:
+                    raw_rss_items = self._convert_rss_items_to_list(new_items_dict, rss_data.id_to_name)
         elif self.report_mode == "current":
             latest_data = self.storage_manager.get_latest_rss_data(rss_data.date)
             if latest_data:
@@ -1202,7 +1333,10 @@ class NewsAnalyzer:
         # 2. 获取新增条目（用于统计）
         new_items_dict = self.storage_manager.detect_new_rss_items(rss_data)
         new_items_list = None
-        if new_items_dict:
+        if self.report_mode == "incremental" and treat_as_first_push_today and raw_rss_items:
+            # 首次推送：把当天所有条目视为“新增”（用于 is_new 标记与统计基线）
+            new_items_list = raw_rss_items
+        elif new_items_dict:
             new_items_list = self._convert_rss_items_to_list(new_items_dict, rss_data.id_to_name)
             if new_items_list:
                 print(f"[RSS] 检测到 {len(new_items_list)} 条新增")
@@ -1588,6 +1722,7 @@ class NewsAnalyzer:
                 html_file_path=html_file,
                 rss_items=rss_items,
                 rss_new_items=rss_new_items,
+                raw_rss_items=raw_rss_items,
                 standalone_data=standalone_data,
                 ai_result=ai_result,
                 current_results=results,

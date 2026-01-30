@@ -200,6 +200,13 @@ class NotificationDispatcher:
             report_data, rss_items, rss_new_items
         )
 
+        # 论文专区开关（论文专区内容在 report_data["papers"] 中）
+        if not display_regions.get("PAPERS", True):
+            try:
+                report_data["papers"] = []
+            except Exception:
+                pass
+
         # 飞书
         if self.config.get("FEISHU_WEBHOOK_URL"):
             results["feishu"] = self._send_feishu(

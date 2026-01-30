@@ -1,0 +1,70 @@
+name: Deploy GitHub Pages (site/)
+
+on:
+  workflow_run:
+    workflows: ["Get Hot News"]
+    types: [completed]
+  workflow_dispatch:
+
+concurrency:
+  group: pages-${{ github.ref_name }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  actions: read
+  pages: write
+  id-token: write
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    if: ${{ github.event_name == 'workflow_dispatch' || github.event.workflow_run.conclusion == 'success' }}
+
+    environment:
+      name: github-pages
+      url: ${{ steps.deployment.outputs.page_url }}
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 1
+          clean: true
+
+      # 使用 Actions Cache 保存历史 site/，保证单篇报告“固定链接”长期可访问
+      # 注意：cache key 每次运行都会变（包含 run_id），并通过 restore-keys 恢复最近一次缓存
+      - name: Restore site cache
+        uses: actions/cache@v4
+        with:
+          path: site
+          key: site-${{ github.ref_name }}-${{ github.run_id }}
+          restore-keys: |
+            site-${{ github.ref_name }}-
+
+      - name: Download site artifact from crawler run
+        if: ${{ github.event_name == 'workflow_run' }}
+        uses: actions/download-artifact@v4
+        with:
+          run-id: ${{ github.event.workflow_run.id }}
+          name: site
+          path: site_new
+
+      - name: Merge site artifact
+        if: ${{ github.event_name == 'workflow_run' }}
+        run: |
+          mkdir -p site
+          cp -R site_new/. site/
+
+      - name: Configure Pages
+        uses: actions/configure-pages@v5
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: site
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4
+

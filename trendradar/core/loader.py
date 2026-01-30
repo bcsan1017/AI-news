@@ -126,6 +126,7 @@ def _load_push_window_config(config_data: Dict) -> Dict:
 
     enabled_env = _get_env_bool("PUSH_WINDOW_ENABLED")
     once_per_day_env = _get_env_bool("PUSH_WINDOW_ONCE_PER_DAY")
+    skip_weekends_env = _get_env_bool("PUSH_WINDOW_SKIP_WEEKENDS")
 
     return {
         "ENABLED": enabled_env if enabled_env is not None else push_window.get("enabled", False),
@@ -134,6 +135,8 @@ def _load_push_window_config(config_data: Dict) -> Dict:
             "END": _get_env_str("PUSH_WINDOW_END") or push_window.get("end", "22:00"),
         },
         "ONCE_PER_DAY": once_per_day_env if once_per_day_env is not None else push_window.get("once_per_day", True),
+        # true=周六日不推送（仍可抓取/存储），避免打扰；适合增量预警场景
+        "SKIP_WEEKENDS": skip_weekends_env if skip_weekends_env is not None else push_window.get("skip_weekends", False),
     }
 
 
@@ -194,11 +197,11 @@ def _load_display_config(config_data: Dict) -> Dict:
     standalone = display.get("standalone", {})
 
     # 默认区域顺序
-    default_region_order = ["hotlist", "rss", "new_items", "standalone", "ai_analysis"]
+    default_region_order = ["hotlist", "rss", "new_items", "papers", "standalone", "ai_analysis"]
     region_order = display.get("region_order", default_region_order)
 
     # 验证 region_order 中的值是否合法
-    valid_regions = {"hotlist", "rss", "new_items", "standalone", "ai_analysis"}
+    valid_regions = {"hotlist", "rss", "new_items", "papers", "standalone", "ai_analysis"}
     region_order = [r for r in region_order if r in valid_regions]
 
     # 如果过滤后为空，使用默认顺序
@@ -213,6 +216,7 @@ def _load_display_config(config_data: Dict) -> Dict:
             "HOTLIST": regions.get("hotlist", True),
             "NEW_ITEMS": regions.get("new_items", True),
             "RSS": regions.get("rss", True),
+            "PAPERS": regions.get("papers", True),
             "STANDALONE": regions.get("standalone", False),
             "AI_ANALYSIS": regions.get("ai_analysis", True),
         },
@@ -322,6 +326,71 @@ def _load_ai_translation_config(config_data: Dict) -> Dict:
         "ENABLED": enabled_env if enabled_env is not None else trans_config.get("enabled", False),
         "LANGUAGE": _get_env_str("AI_TRANSLATION_LANGUAGE") or trans_config.get("language", "English"),
         "PROMPT_FILE": trans_config.get("prompt_file", "ai_translation_prompt.txt"),
+    }
+
+
+def _load_quality_gate_config(config_data: Dict) -> Dict:
+    """加载推送前质量闸门配置（快速复筛）"""
+    gate_config = config_data.get("quality_gate", {})
+
+    enabled_env = _get_env_bool("QUALITY_GATE_ENABLED")
+    model_env = _get_env_str("QUALITY_GATE_MODEL")
+
+    debug_env = _get_env_bool("QUALITY_GATE_DEBUG")
+
+    return {
+        "ENABLED": enabled_env if enabled_env is not None else gate_config.get("enabled", False),
+        # 默认使用轻量模型做快速复筛
+        "MODEL": model_env or gate_config.get("model", "gemini-3-flash-preview"),
+        # 0-100，越高越严格
+        "MIN_SCORE": _get_env_int("QUALITY_GATE_MIN_SCORE") or gate_config.get("min_score", 60),
+        # 每次推送最多评估多少条（其余默认保留，避免误删）
+        "MAX_ITEMS": _get_env_int("QUALITY_GATE_MAX_ITEMS") or gate_config.get("max_items", 30),
+        # 每次请求评估条数（用于分批，避免一次输入过长导致失败）
+        "BATCH_SIZE": _get_env_int("QUALITY_GATE_BATCH_SIZE") or gate_config.get("batch_size", 40),
+        # 超时与输出上限（控制成本与时延）
+        "TIMEOUT": _get_env_int("QUALITY_GATE_TIMEOUT") or gate_config.get("timeout", 30),
+        "MAX_TOKENS": _get_env_int("QUALITY_GATE_MAX_TOKENS") or gate_config.get("max_tokens", 900),
+        # Gemini/LiteLLM：推理强度（建议 low，省钱/更快）
+        "REASONING_EFFORT": _get_env_str("QUALITY_GATE_REASONING_EFFORT") or gate_config.get("reasoning_effort", "low"),
+        "DEBUG": debug_env if debug_env is not None else gate_config.get("debug", False),
+    }
+
+
+def _load_paper_zone_config(config_data: Dict) -> Dict:
+    """加载论文专区配置（用于实时论文监控与解读报告生成）"""
+    paper_cfg = config_data.get("paper_zone", {}) or {}
+
+    enabled_env = _get_env_bool("PAPER_ZONE_ENABLED")
+
+    # feed_ids：优先使用环境变量覆盖（逗号分隔），否则使用配置文件列表
+    feed_ids_env = _get_env_str("PAPER_ZONE_FEED_IDS")
+    if feed_ids_env:
+        feed_ids = [x.strip() for x in feed_ids_env.split(",") if x.strip()]
+    else:
+        feed_ids = paper_cfg.get("feed_ids", []) or []
+
+    return {
+        "ENABLED": enabled_env if enabled_env is not None else paper_cfg.get("enabled", False),
+        "FEED_IDS": feed_ids,
+        "MAX_REPORTS_PER_RUN": _get_env_int("PAPER_ZONE_MAX_REPORTS_PER_RUN") or paper_cfg.get("max_reports_per_run", 3),
+        "MIN_SCORE": _get_env_int("PAPER_ZONE_MIN_SCORE") or paper_cfg.get("min_score", 70),
+        "OUTPUT_DIR": _get_env_str("PAPER_ZONE_OUTPUT_DIR") or paper_cfg.get("output_dir", "site"),
+        "PAGES_BASE_URL": _get_env_str("PAPER_ZONE_PAGES_BASE_URL") or paper_cfg.get("pages_base_url", ""),
+        "PROMPT_FILE": _get_env_str("PAPER_ZONE_PROMPT_FILE") or paper_cfg.get("prompt_file", "paper_analysis_prompt.txt"),
+        # 论文解读用的模型（与 AI_MODEL 解耦）
+        "MODEL": _get_env_str("PAPER_ZONE_MODEL") or paper_cfg.get("model", "gemini-3-pro-preview"),
+        "REASONING_EFFORT": _get_env_str("PAPER_ZONE_REASONING_EFFORT") or paper_cfg.get("reasoning_effort", "high"),
+        # 单篇输出与超时（覆盖 6-phase 大体量输出）
+        "MAX_TOKENS": _get_env_int("PAPER_ZONE_MAX_TOKENS") or paper_cfg.get("max_tokens", 8000),
+        "TIMEOUT": _get_env_int("PAPER_ZONE_TIMEOUT") or paper_cfg.get("timeout", 180),
+        # 正文抓取与裁剪
+        "MAX_CONTENT_CHARS": _get_env_int("PAPER_ZONE_MAX_CONTENT_CHARS") or paper_cfg.get("max_content_chars", 45000),
+        "CONTENT_FETCH_TIMEOUT": _get_env_int("PAPER_ZONE_CONTENT_FETCH_TIMEOUT") or paper_cfg.get("content_fetch_timeout", 20),
+        "CONTENT_SOURCE_PRIORITY": (
+            [x.strip() for x in (_get_env_str("PAPER_ZONE_CONTENT_SOURCE_PRIORITY") or "").split(",") if x.strip()]
+            or paper_cfg.get("content_source_priority", ["ar5iv", "pdf", "abs", "rss"])
+        ),
     }
 
 
@@ -552,6 +621,12 @@ def load_config(config_path: Optional[str] = None) -> Dict[str, Any]:
 
     # AI 翻译配置
     config["AI_TRANSLATION"] = _load_ai_translation_config(config_data)
+
+    # 推送前质量闸门配置（快速复筛）
+    config["QUALITY_GATE"] = _load_quality_gate_config(config_data)
+
+    # 论文专区配置
+    config["PAPER_ZONE"] = _load_paper_zone_config(config_data)
 
     # 推送内容显示配置
     config["DISPLAY"] = _load_display_config(config_data)

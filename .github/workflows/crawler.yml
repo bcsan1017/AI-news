@@ -35,7 +35,8 @@ on:
     #   "15 * * * *"     → 每小时第15分钟 / minute 15 every hour
     #   "30 0-14 * * *"  → 北京时间 8:00-22:00 每小时第30分钟 / Beijing 8am-10pm
     #
-    - cron: "33 * * * *"
+    # 工作日北京时间 10:33-23:33 每小时一次（UTC 02:33-15:33，周一到周五）
+    - cron: "33 2-15 * * 1-5"
 
   workflow_dispatch:
 
@@ -138,10 +139,21 @@ jobs:
           # 混合节奏：高频增量预警（此 workflow）
           REPORT_MODE: incremental
           AI_ANALYSIS_ENABLED: "false"
+          # 推送前质量闸门：用 gemini-3-flash-preview 快速复筛粗筛结果
+          QUALITY_GATE_ENABLED: "true"
+          QUALITY_GATE_MODEL: "gemini-3-flash-preview"
+          QUALITY_GATE_MIN_SCORE: "60"
+          # 0 = 尽量全量复筛（更全面）
+          QUALITY_GATE_MAX_ITEMS: "0"
+          # 分批评估，避免单次输入过长
+          QUALITY_GATE_BATCH_SIZE: "40"
+          QUALITY_GATE_TIMEOUT: "30"
+          QUALITY_GATE_REASONING_EFFORT: "low"
           PUSH_WINDOW_ENABLED: "true"
-          PUSH_WINDOW_START: "08:00"
+          PUSH_WINDOW_START: "10:00"
           PUSH_WINDOW_END: "23:00"
           PUSH_WINDOW_ONCE_PER_DAY: "false"
+          PUSH_WINDOW_SKIP_WEEKENDS: "true"
 
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
@@ -168,6 +180,9 @@ jobs:
           AI_API_KEY: ${{ secrets.AI_API_KEY || secrets.GEMINI_API_KEY }}
           AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
           AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
+          # 论文专区（使用配置文件启用；这里额外显式指定模型，便于排查）
+          PAPER_ZONE_ENABLED: "true"
+          PAPER_ZONE_MODEL: "gemini-3-pro-preview"
           # 远程存储配置
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}
@@ -176,3 +191,18 @@ jobs:
           S3_REGION: ${{ secrets.S3_REGION }}
           GITHUB_ACTIONS: true
         run: python -m trendradar
+
+      - name: Prepare site directory (for Pages)
+        if: always()
+        run: |
+          mkdir -p site
+          # 避免“空目录无法上传 artifact”的问题
+          date -u +"%Y-%m-%dT%H:%M:%SZ" > site/.keep
+
+      - name: Upload site artifact (for Pages)
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: site
+          path: site
+          if-no-files-found: error

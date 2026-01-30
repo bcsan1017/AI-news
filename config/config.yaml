@@ -54,6 +54,11 @@ platforms:
       name: "抖音"
     - id: "zhihu"
       name: "知乎"
+    # Agent/工具生态（热榜信号）
+    - id: "producthunt"
+      name: "Product Hunt"
+    - id: "github"
+      name: "GitHub"
 
 
 
@@ -99,6 +104,58 @@ rss:
       name: "阮一峰的网络日志"
       url: "http://www.ruanyifeng.com/blog/atom.xml"
       # max_age_days: 7               # 示例：推送7天内的文章（更新较慢的博客）
+
+    # =============================================================
+    # 模型/平台官方更新（第一层：RSS）
+    # =============================================================
+    - id: "openai-news"
+      name: "OpenAI News"
+      url: "https://openai.com/news/rss.xml"
+      max_age_days: 14
+      max_items: 50
+      enabled: true
+
+    - id: "google-deepmind-blog"
+      name: "Google DeepMind Blog"
+      url: "https://deepmind.google/blog/rss.xml"
+      max_age_days: 14
+      max_items: 50
+      enabled: true
+
+    - id: "google-research-blog"
+      name: "Google Research Blog"
+      url: "https://research.google/blog/rss/"
+      max_age_days: 14
+      max_items: 50
+      enabled: true
+
+    - id: "android-developers-blog"
+      name: "Android Developers Blog"
+      url: "https://android-developers.googleblog.com/feeds/posts/default"
+      max_age_days: 14
+      max_items: 50
+      enabled: true
+
+    - id: "apple-developer-news"
+      name: "Apple Developer News"
+      url: "https://developer.apple.com/news/rss/news.rss"
+      max_age_days: 30
+      max_items: 50
+      enabled: true
+
+    - id: "apple-developer-releases"
+      name: "Apple Developer Releases"
+      url: "https://developer.apple.com/news/releases/rss/releases.rss"
+      max_age_days: 30
+      max_items: 50
+      enabled: true
+
+    - id: "meta-blog"
+      name: "Meta Blog (Quest/AR/AI Glasses)"
+      url: "https://www.meta.com/blog/rss/"
+      max_age_days: 14
+      max_items: 50
+      enabled: true
 
     # =============================================================
     # 可穿戴/AI眼镜/ARVR 资讯（第一层：RSS）
@@ -159,8 +216,37 @@ rss:
     # =============================================================
     - id: "arxiv-cs-ai"
       name: "arXiv cs.AI"
-      url: "https://export.arxiv.org/rss/cs.AI"
+      url: "https://rss.arxiv.org/rss/cs.AI"
       max_age_days: 7
+      enabled: true
+
+    # 论文专区（arXiv 分类扩展）
+    - id: "arxiv-cs-lg"
+      name: "arXiv cs.LG (Machine Learning)"
+      url: "https://rss.arxiv.org/rss/cs.LG"
+      max_age_days: 7
+      max_items: 50
+      enabled: true
+
+    - id: "arxiv-cs-cl"
+      name: "arXiv cs.CL (Computation and Language)"
+      url: "https://rss.arxiv.org/rss/cs.CL"
+      max_age_days: 7
+      max_items: 50
+      enabled: true
+
+    - id: "arxiv-cs-cv"
+      name: "arXiv cs.CV (Computer Vision)"
+      url: "https://rss.arxiv.org/rss/cs.CV"
+      max_age_days: 7
+      max_items: 50
+      enabled: true
+
+    - id: "arxiv-cs-hc"
+      name: "arXiv cs.HC (Human-Computer Interaction)"
+      url: "https://rss.arxiv.org/rss/cs.HC"
+      max_age_days: 7
+      max_items: 50
       enabled: true
 
     # =============================================================
@@ -287,6 +373,7 @@ display:
   #   2. 下方 regions 中对应开关为 true
   region_order:
     - ai_analysis                     # 1️⃣ AI 分析区域（放在最前，便于先看结论）
+    - papers                          # 2️⃣ 论文专区（高价值论文解读链接）
     - new_items                       # 2️⃣ 新增热点区域
     - hotlist                         # 3️⃣ 热榜区域（关键词匹配）
     - rss                             # 4️⃣ RSS 订阅区域
@@ -298,6 +385,8 @@ display:
     hotlist: true                     # 热榜区域（关键词匹配的热点新闻）
     new_items: true                   # 新增热点区域（含热榜新增 + RSS 新增）
                                       # 注：热点词汇统计中的新增标记🆕不受此配置影响
+
+    papers: true                      # 论文专区（高价值论文解读链接）
 
     rss: true                         # RSS 订阅区域
                                       # 开启后将对 RSS 进行关键词分析并在通知中展示
@@ -583,6 +672,50 @@ ai_translation:
 
   # 提示词配置文件路径（相对于 config 目录）
   prompt_file: "ai_translation_prompt.txt"
+
+paper_zone:
+  enabled: true
+  # 论文专区覆盖的 feed_id 列表（来自 rss.feeds）
+  feed_ids:
+    - "arxiv-cs-ai"
+    - "arxiv-cs-lg"
+    - "arxiv-cs-cl"
+    - "arxiv-cs-cv"
+    - "arxiv-cs-hc"
+
+  # 每次运行最多生成多少篇“单篇解读报告”（控制成本关键项）
+  max_reports_per_run: 3
+  # 0-100，论文“高价值”阈值（建议 70 起）
+  min_score: 70
+
+  # 产物输出目录（用于 GitHub Pages 发布）
+  output_dir: "site"
+  # 可选：固定 Pages base URL（留空则自动从 GITHUB_REPOSITORY 推导）
+  pages_base_url: ""
+
+  # 解读提示词（相对于 config/ 目录）
+  prompt_file: "paper_analysis_prompt.txt"
+  # 论文解读使用的模型（与日常 flash 分离，固定用 pro）
+  model: "gemini-3-pro-preview"
+  reasoning_effort: "high"
+
+  # 单篇解读输出上限（需要覆盖 6-phase 大体量输出）
+  # 提示：不同模型/代理对 max_tokens 的实际限制不同，若被截断请调大或降低论文数量
+  max_tokens: 8000
+  # 单篇解读超时（秒）
+  timeout: 180
+
+  # 论文正文抓取与裁剪
+  # - 会按优先级尝试补齐“原文内容”，尽量拿到全文
+  # - 为避免上下文过长，会裁剪到 max_content_chars
+  max_content_chars: 45000
+  content_fetch_timeout: 20
+  # 抓取优先级：ar5iv(HTML) → pdf → abs → rss（最后兜底摘要）
+  content_source_priority:
+    - "ar5iv"
+    - "pdf"
+    - "abs"
+    - "rss"
 
 
 # ===============================================================

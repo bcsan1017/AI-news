@@ -22,7 +22,7 @@ DEFAULT_BATCH_SIZES = {
 }
 
 # 默认区域顺序
-DEFAULT_REGION_ORDER = ["hotlist", "rss", "new_items", "standalone", "ai_analysis"]
+DEFAULT_REGION_ORDER = ["hotlist", "rss", "new_items", "papers", "standalone", "ai_analysis"]
 
 
 def split_content_into_batches(
@@ -224,6 +224,7 @@ def split_content_into_batches(
         and not report_data["failed_ids"]
         and not ai_content  # 有 AI 内容时不返回"暂无匹配"
         and not rss_items  # 有 RSS 内容时也不返回
+        and not report_data.get("papers")  # 有论文专区内容时也不返回
         and not standalone_data  # 有独立展示区数据时也不返回
     ):
         if mode == "incremental":
@@ -678,6 +679,89 @@ def split_content_into_batches(
 
         return current_batch, current_batch_has_content, batches
 
+    def process_papers_section(current_batch, current_batch_has_content, batches, add_separator=True):
+        """处理论文专区内容（单篇报告链接）"""
+        papers = report_data.get("papers") or []
+        if not papers:
+            return current_batch, current_batch_has_content, batches
+
+        # header
+        header = ""
+        if add_separator and current_batch_has_content:
+            if format_type == "feishu":
+                header = f"\n{feishu_separator}\n\n📄 **论文专区** (共 {len(papers)} 篇)\n\n"
+            elif format_type == "dingtalk":
+                header = f"\n---\n\n📄 **论文专区** (共 {len(papers)} 篇)\n\n"
+            elif format_type in ("wework", "bark"):
+                header = f"\n\n\n\n📄 **论文专区** (共 {len(papers)} 篇)\n\n"
+            else:
+                header = f"\n\n📄 **论文专区** (共 {len(papers)} 篇)\n\n"
+        else:
+            if format_type in ("telegram",):
+                header = f"📄 论文专区 (共 {len(papers)} 篇)\n\n"
+            else:
+                header = f"📄 **论文专区** (共 {len(papers)} 篇)\n\n"
+
+        test_content = current_batch + header
+        if len(test_content.encode("utf-8")) + len(base_footer.encode("utf-8")) >= max_bytes:
+            if current_batch_has_content:
+                batches.append(current_batch + base_footer)
+            current_batch = base_header + header
+            current_batch_has_content = True
+        else:
+            current_batch = test_content
+            current_batch_has_content = True
+
+        # items（尽量保持每条原子性：标题 + 报告链接）
+        for i, p in enumerate(papers, 1):
+            title = (p.get("title") or "").strip()
+            report_url = (p.get("report_url") or "").strip()
+            paper_url = (p.get("paper_url") or "").strip()
+            score = p.get("score")
+
+            if not title:
+                continue
+
+            score_str = f"（score {score}）" if score is not None else ""
+
+            if format_type == "slack":
+                line_title = f"  {i}. <{report_url}|{title}>{score_str}\n" if report_url else f"  {i}. {title}{score_str}\n"
+            else:
+                # 其它渠道统一用 markdown/link 或纯文本兜底
+                if report_url and format_type in ("dingtalk", "wework", "bark", "ntfy"):
+                    line_title = f"  {i}. [{title}]({report_url}){score_str}\n"
+                elif report_url and format_type == "telegram":
+                    line_title = f"  {i}. {title}{score_str}\n     报告：{report_url}\n"
+                elif report_url and format_type == "feishu":
+                    line_title = f"  {i}. {title}{score_str}\n     报告：{report_url}\n"
+                elif report_url:
+                    line_title = f"  {i}. {title}{score_str} ({report_url})\n"
+                else:
+                    line_title = f"  {i}. {title}{score_str}\n"
+
+            # 可选附上原文链接（避免过长，只有在有 paper_url 时追加一行）
+            line_extra = ""
+            if paper_url:
+                if format_type in ("telegram", "feishu"):
+                    line_extra = f"     原文：{paper_url}\n"
+                elif format_type == "slack":
+                    line_extra = f"     原文：<{paper_url}|arXiv>\n"
+                else:
+                    line_extra = f"     原文：{paper_url}\n"
+
+            block = line_title + line_extra + "\n"
+            test_content = current_batch + block
+            if len(test_content.encode("utf-8")) + len(base_footer.encode("utf-8")) >= max_bytes:
+                if current_batch_has_content:
+                    batches.append(current_batch + base_footer)
+                current_batch = base_header + header + block
+                current_batch_has_content = True
+            else:
+                current_batch = test_content
+                current_batch_has_content = True
+
+        return current_batch, current_batch_has_content, batches
+
     # 定义处理独立展示区的函数
     def process_standalone_section_wrapper(current_batch, current_batch_has_content, batches, add_separator=True):
         """处理独立展示区"""
@@ -758,6 +842,11 @@ def split_content_into_batches(
         elif region == "ai_analysis":
             # 处理 AI 分析
             current_batch, current_batch_has_content, batches = process_ai_section(
+                current_batch, current_batch_has_content, batches, add_separator
+            )
+        elif region == "papers":
+            # 处理论文专区
+            current_batch, current_batch_has_content, batches = process_papers_section(
                 current_batch, current_batch_has_content, batches, add_separator
             )
 
