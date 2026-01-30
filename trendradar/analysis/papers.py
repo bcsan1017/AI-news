@@ -18,7 +18,7 @@ import json
 import os
 import re
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
@@ -653,7 +653,10 @@ def write_paper_pages(
     # 建立 id -> candidate
     cand_map = {c.id: c for c in candidates}
 
-    reports: List[Dict[str, Any]] = []
+    # 扫描历史报告 meta（用于索引页与“避免重复呈现”）
+    all_reports: List[Dict[str, Any]] = _scan_existing_reports(papers_dir)
+
+    reports_new: List[Dict[str, Any]] = []
     for d in decisions:
         c = cand_map.get(d.id)
         if not c:
@@ -665,21 +668,40 @@ def write_paper_pages(
         out_path = papers_dir / slug / "index.html"
         out_path.parent.mkdir(parents=True, exist_ok=True)
 
-        # 若已存在则不重复生成（避免重复消耗）
-        if not out_path.exists():
-            md, html_text = generate_single_paper_report(
-                candidate=c,
-                ai_config=ai_config,
-                paper_zone_cfg=paper_zone_cfg,
-                now=now,
-                project_root=project_root,
-            )
-            out_path.write_text(html_text, encoding="utf-8")
-            # 旁路保存 markdown（方便 diff/复用）
-            (out_path.parent / "report.md").write_text(md, encoding="utf-8")
+        # 若已存在则不重复生成，也不重复推送（避免重复呈现）
+        if out_path.exists():
+            continue
+
+        md, html_text = generate_single_paper_report(
+            candidate=c,
+            ai_config=ai_config,
+            paper_zone_cfg=paper_zone_cfg,
+            now=now,
+            project_root=project_root,
+        )
+        out_path.write_text(html_text, encoding="utf-8")
+        # 旁路保存 markdown（方便 diff/复用）
+        (out_path.parent / "report.md").write_text(md, encoding="utf-8")
+
+        meta = {
+            "title": c.title,
+            "paper_url": c.url,
+            "feed_name": c.feed_name,
+            "feed_id": c.feed_id,
+            "published_at": c.published_at,
+            "score": d.score,
+            "reason": d.reason,
+            "slug": slug,
+            "generated_at": now.strftime("%Y-%m-%d %H:%M:%S"),
+        }
+        (out_path.parent / "meta.json").write_text(
+            json.dumps(meta, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        all_reports.append(meta)
 
         report_url = f"{base_url}papers/{slug}/" if base_url else f"papers/{slug}/"
-        reports.append(
+        reports_new.append(
             {
                 "title": c.title,
                 "paper_url": c.url,
@@ -695,10 +717,24 @@ def write_paper_pages(
         )
 
     # 生成索引页（简洁可读）
-    _write_papers_index(papers_dir, reports, now, base_url)
+    _write_papers_index(papers_dir, all_reports, now, base_url)
     _write_root_index(site_dir, now, base_url)
 
-    return reports
+    return reports_new
+
+
+def _scan_existing_reports(papers_dir: Path) -> List[Dict[str, Any]]:
+    if not papers_dir.exists():
+        return []
+    metas: List[Dict[str, Any]] = []
+    for meta_path in papers_dir.glob("*/meta.json"):
+        try:
+            data = json.loads(meta_path.read_text(encoding="utf-8"))
+            if isinstance(data, dict) and data.get("slug"):
+                metas.append(data)
+        except Exception:
+            continue
+    return metas
 
 
 def _write_papers_index(papers_dir: Path, reports: List[Dict[str, Any]], now: datetime, base_url: str) -> None:
@@ -772,4 +808,239 @@ def _write_root_index(site_dir: Path, now: datetime, base_url: str) -> None:
 </html>
 """
     (site_dir / "index.html").write_text(html_text, encoding="utf-8")
+
+
+def _parse_iso_datetime(value: str) -> Optional[datetime]:
+    if not value:
+        return None
+    s = value.strip()
+    if not s:
+        return None
+    # 常见格式：2026-01-30 13:00 / 2026-01-30T13:00:00Z / ISO8601
+    try:
+        return datetime.fromisoformat(s.replace("Z", "+00:00"))
+    except Exception:
+        # 兜底：只截取到秒
+        try:
+            return datetime.fromisoformat(s[:19])
+        except Exception:
+            return None
+
+
+def _normalize_title_for_match(title: str) -> str:
+    t = (title or "").strip().lower()
+    t = re.sub(r"[^a-z0-9]+", " ", t)
+    return re.sub(r"\\s+", " ", t).strip()
+
+
+def _openalex_search_work(title: str, published_at: str, timeout: int = 20) -> Optional[Dict[str, Any]]:
+    """
+    OpenAlex 不提供 arXiv id 字段：用 title 搜索 + 发布时间窗口匹配。
+    返回精简元信息（不存在则 None）。
+    """
+    if not title:
+        return None
+
+    pub_dt = _parse_iso_datetime(published_at)
+    if pub_dt:
+        start = (pub_dt - timedelta(days=10)).date().isoformat()
+        end = (pub_dt + timedelta(days=10)).date().isoformat()
+    else:
+        end = datetime.utcnow().date().isoformat()
+        start = (datetime.utcnow().date() - timedelta(days=30)).isoformat()
+
+    params = {
+        "search": title,
+        "per-page": 5,
+        "filter": f"from_publication_date:{start},to_publication_date:{end}",
+    }
+
+    try:
+        resp = requests.get(
+            "https://api.openalex.org/works",
+            params=params,
+            timeout=timeout,
+            headers={"User-Agent": "TrendRadar/2.0"},
+        )
+        if resp.status_code != 200:
+            return None
+        data = resp.json()
+        results = data.get("results") or []
+        if not results:
+            return None
+    except Exception:
+        return None
+
+    target = _normalize_title_for_match(title)
+    best = None
+    best_score = -1.0
+    import difflib
+
+    for w in results:
+        w_title = _normalize_title_for_match(w.get("title") or w.get("display_name") or "")
+        if not w_title:
+            continue
+        score = difflib.SequenceMatcher(None, target, w_title).ratio()
+        if score > best_score:
+            best_score = score
+            best = w
+
+    if not best or best_score < 0.6:
+        return None
+
+    return {
+        "openalex_id": best.get("id", ""),
+        "cited_by_count": int(best.get("cited_by_count", 0) or 0),
+        "publication_date": best.get("publication_date", ""),
+        "type": best.get("type", ""),
+        "fwci": best.get("fwci", None),
+        "best_title": best.get("title") or best.get("display_name") or "",
+        "match_score": best_score,
+    }
+
+
+def run_fermented_paper_zone(
+    storage_manager: Any,
+    paper_zone_cfg: Dict[str, Any],
+    ai_config: Dict[str, Any],
+    now: datetime,
+    project_root: str,
+) -> List[Dict[str, Any]]:
+    """
+    发酵遴选模式入口：
+    - 从过去一段时间的 RSS 库中挑选 arXiv 论文候选（>= min_age_days）
+    - 用客观信号（OpenAlex cited_by_count + 站内跨源提及）排序
+    - 对本次“新入选”论文生成单篇解读并落盘到 site/
+    - 返回用于推送的 paper_reports（只包含新入选/新生成）
+    """
+    if (paper_zone_cfg.get("MODE") or "fermented") != "fermented":
+        return []
+
+    feed_ids = paper_zone_cfg.get("FEED_IDS") or []
+    if not feed_ids:
+        return []
+
+    output_dir = (paper_zone_cfg.get("OUTPUT_DIR") or "site").strip()
+    site_dir = Path(project_root) / output_dir
+    state_dir = site_dir / "_paper_zone"
+    state_dir.mkdir(parents=True, exist_ok=True)
+
+    presented_path = state_dir / "presented.json"
+    cache_path = state_dir / "openalex_cache.json"
+
+    presented = set()
+    if paper_zone_cfg.get("DEDUPE", True) and presented_path.exists():
+        try:
+            presented = set(json.loads(presented_path.read_text(encoding="utf-8")) or [])
+        except Exception:
+            presented = set()
+
+    try:
+        openalex_cache = json.loads(cache_path.read_text(encoding="utf-8")) if cache_path.exists() else {}
+        if not isinstance(openalex_cache, dict):
+            openalex_cache = {}
+    except Exception:
+        openalex_cache = {}
+
+    lookback_days = int(paper_zone_cfg.get("LOOKBACK_DAYS") or 14)
+    min_age_days = int(paper_zone_cfg.get("MIN_AGE_DAYS") or 3)
+    max_present = int(paper_zone_cfg.get("MAX_PRESENT_PER_RUN") or 5)
+
+    start_day = (now - timedelta(days=lookback_days)).date()
+    end_day = (now - timedelta(days=min_age_days)).date()
+
+    candidates_map: Dict[str, PaperCandidate] = {}
+    mention_counts: Dict[str, int] = {}
+
+    day = start_day
+    while day <= end_day:
+        date_str = day.isoformat()
+        rss_data = storage_manager.get_rss_data(date_str)
+        if rss_data and getattr(rss_data, "items", None):
+            # 统计跨源提及（从所有 RSS 条目提取 arXiv id）
+            for _, items in rss_data.items.items():
+                for it in items:
+                    aid = _normalize_arxiv_id(_extract_arxiv_id(getattr(it, "url", "") or ""))
+                    if not aid:
+                        continue
+                    mention_counts[aid] = mention_counts.get(aid, 0) + 1
+
+            # 论文 feed 候选
+            for fid in feed_ids:
+                for it in rss_data.items.get(fid, []) or []:
+                    url = getattr(it, "url", "") or ""
+                    aid = _normalize_arxiv_id(_extract_arxiv_id(url))
+                    if not aid:
+                        continue
+                    if paper_zone_cfg.get("DEDUPE", True) and aid in presented:
+                        continue
+                    if aid in candidates_map:
+                        continue
+                    candidates_map[aid] = PaperCandidate(
+                        id=aid,
+                        feed_id=fid,
+                        feed_name=rss_data.id_to_name.get(fid, fid),
+                        title=getattr(it, "title", "") or "",
+                        url=url,
+                        published_at=getattr(it, "published_at", "") or "",
+                        summary=getattr(it, "summary", "") or "",
+                        author=getattr(it, "author", "") or "",
+                        arxiv_id=aid,
+                        slug=_slugify(aid),
+                    )
+        day = day + timedelta(days=1)
+
+    candidates = list(candidates_map.values())
+    if not candidates:
+        cache_path.write_text(json.dumps(openalex_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+        return []
+
+    # 2) 客观信号打分（OpenAlex + mentions）
+    scored: List[Tuple[float, PaperCandidate, Dict[str, Any]]] = []
+    import math
+
+    for c in candidates:
+        aid = c.arxiv_id or c.id
+        mcnt = int(mention_counts.get(aid, 0) or 0)
+
+        meta = openalex_cache.get(aid)
+        if not isinstance(meta, dict) or not meta:
+            meta = _openalex_search_work(c.title, c.published_at, timeout=20) or {}
+            openalex_cache[aid] = meta
+
+        cited = int((meta or {}).get("cited_by_count", 0) or 0)
+
+        score = 40.0 * math.log1p(cited) + 20.0 * math.log1p(mcnt)
+        scored.append((score, c, {"cited_by_count": cited, "mention_count": mcnt, "openalex": meta}))
+
+    scored.sort(key=lambda x: (-x[0], x[1].id))
+    picked = scored[: max_present if max_present > 0 else 5]
+
+    # 3) 生成解读报告（只对本次新入选生成）
+    decisions: List[PaperDecision] = []
+    picked_candidates: List[PaperCandidate] = []
+    for s, c, extra in picked:
+        picked_candidates.append(c)
+        reason = f"cites={extra['cited_by_count']},mentions={extra['mention_count']}"
+        decisions.append(PaperDecision(id=c.id, score=int(round(min(100, s))), keep=True, reason=reason))
+
+    reports_new = write_paper_pages(
+        candidates=picked_candidates,
+        decisions=decisions,
+        ai_config=ai_config,
+        paper_zone_cfg=paper_zone_cfg,
+        now=now,
+        project_root=project_root,
+    )
+
+    # 4) 写入去重集合（只记录成功生成的）
+    if paper_zone_cfg.get("DEDUPE", True) and reports_new:
+        for r in reports_new:
+            pid = _normalize_arxiv_id(_extract_arxiv_id(r.get("paper_url", ""))) or (r.get("slug") or "")
+            if pid:
+                presented.add(pid)
+        presented_path.write_text(json.dumps(sorted(presented), ensure_ascii=False, indent=2), encoding="utf-8")
+
+    cache_path.write_text(json.dumps(openalex_cache, ensure_ascii=False, indent=2), encoding="utf-8")
+    return reports_new
 

@@ -204,6 +204,12 @@ class NewsAnalyzer:
             "report_type": "全天汇总",
             "should_send_notification": True,
         },
+        "paper_zone": {
+            "mode_name": "论文专区",
+            "description": "论文专区（发酵遴选 + 单篇解读链接推送）",
+            "report_type": "论文专区",
+            "should_send_notification": True,
+        },
     }
 
     def __init__(self, config: Optional[Dict] = None):
@@ -875,23 +881,7 @@ class NewsAnalyzer:
         # 检查是否有有效内容（热榜或RSS）
         has_news_content = self._has_valid_content(stats, new_titles)
         has_rss_content = bool(rss_items and len(rss_items) > 0)
-        # 论文专区：只要有来自论文 feed 的条目，就认为“有内容”（即使关键词统计为空）
-        paper_cfg = cfg.get("PAPER_ZONE", {}) or {}
-        paper_feed_ids = set((paper_cfg.get("FEED_IDS") or []) if isinstance(paper_cfg, dict) else [])
-        papers_candidate_count = 0
-        if (
-            mode == "incremental"
-            and paper_cfg.get("ENABLED", False)
-            and raw_rss_items
-            and cfg.get("DISPLAY", {}).get("REGIONS", {}).get("PAPERS", True)
-            and paper_feed_ids
-        ):
-            papers_candidate_count = sum(
-                1 for it in raw_rss_items if (it.get("feed_id") or "").strip() in paper_feed_ids
-            )
-        has_papers_source_content = papers_candidate_count > 0
-
-        has_any_content = has_news_content or has_rss_content or has_papers_source_content
+        has_any_content = has_news_content or has_rss_content
 
         # 计算热榜匹配条数
         news_count = sum(len(stat.get("titles", [])) for stat in stats) if stats else 0
@@ -909,9 +899,7 @@ class NewsAnalyzer:
                 content_parts.append(f"热榜 {news_count} 条")
             if rss_count > 0:
                 content_parts.append(f"RSS {rss_count} 条")
-            if papers_candidate_count > 0:
-                content_parts.append(f"论文候选 {papers_candidate_count} 条")
-            total_count = news_count + rss_count + papers_candidate_count
+            total_count = news_count + rss_count
             print(f"[推送] 准备发送：{' + '.join(content_parts)}，合计 {total_count} 条")
 
             # 推送窗口控制
@@ -949,60 +937,6 @@ class NewsAnalyzer:
                         stats, rss_items, mode, report_type, id_to_name, current_results=current_results
                     )
 
-            # 论文专区：在“允许推送”之后再做（避免窗口外消耗 Pro 额度）
-            paper_reports = []
-            if (
-                mode == "incremental"
-                and paper_cfg.get("ENABLED", False)
-                and papers_candidate_count > 0
-                and raw_rss_items
-                and cfg.get("DISPLAY", {}).get("REGIONS", {}).get("PAPERS", True)
-            ):
-                try:
-                    from trendradar.analysis.papers import (
-                        collect_paper_candidates,
-                        decide_high_value_papers,
-                        write_paper_pages,
-                    )
-                    from pathlib import Path
-
-                    project_root = str(Path(__file__).resolve().parents[1])
-                    now = self.ctx.get_time()
-
-                    candidates = collect_paper_candidates(
-                        raw_rss_items=raw_rss_items,
-                        feed_ids=paper_cfg.get("FEED_IDS", []) or [],
-                    )
-                    if candidates:
-                        # 限制候选上限，避免一次性评估过多（小而精）
-                        candidates = sorted(candidates, key=lambda c: c.published_at or "", reverse=True)
-                        preselect = candidates[:30]
-
-                        picked = decide_high_value_papers(
-                            candidates=preselect,
-                            ai_config=cfg.get("AI", {}),
-                            model=paper_cfg.get("MODEL", "gemini-3-pro-preview"),
-                            reasoning_effort=paper_cfg.get("REASONING_EFFORT", "high"),
-                            min_score=int(paper_cfg.get("MIN_SCORE", 70) or 70),
-                            max_reports_per_run=int(paper_cfg.get("MAX_REPORTS_PER_RUN", 3) or 3),
-                            timeout=int(paper_cfg.get("TIMEOUT", 180) or 180),
-                        )
-
-                        if picked:
-                            paper_reports = write_paper_pages(
-                                candidates=preselect,
-                                decisions=picked,
-                                ai_config=cfg.get("AI", {}),
-                                paper_zone_cfg=paper_cfg,
-                                now=now,
-                                project_root=project_root,
-                            )
-
-                            if paper_reports:
-                                print(f"[论文专区] 已生成 {len(paper_reports)} 篇解读报告（将注入本次推送）")
-                except Exception as e:
-                    print(f"[论文专区] 生成失败，已跳过: {type(e).__name__}: {e}")
-
             # 准备报告数据
             report_data = self.ctx.prepare_report(stats, failed_ids, new_titles, id_to_name, mode)
 
@@ -1031,8 +965,8 @@ class NewsAnalyzer:
                 except Exception as e:
                     print(f"[质量闸门] 复筛失败，已跳过过滤: {type(e).__name__}: {e}")
 
-            # 注入论文专区（不参与质量闸门过滤）
-            report_data["papers"] = paper_reports or []
+            # 论文专区改为独立的 paper_zone 调度；增量推送不携带论文解读
+            report_data["papers"] = []
 
             # 是否发送版本更新信息
             update_info_to_send = self.update_info if cfg["SHOW_VERSION_UPDATE"] else None
@@ -1040,8 +974,7 @@ class NewsAnalyzer:
             # 如果质量闸门过滤后完全没有内容，跳过本次推送（尤其是增量模式）
             filtered_news_count = sum(len(s.get("titles", [])) for s in (report_data.get("stats") or []))
             filtered_rss_count = sum(s.get("count", 0) for s in (rss_items or [])) if rss_items else 0
-            filtered_papers_count = len(report_data.get("papers") or [])
-            if filtered_news_count + filtered_rss_count + filtered_papers_count == 0:
+            if filtered_news_count + filtered_rss_count == 0:
                 print("[推送] 质量闸门过滤后无可推送内容，跳过本次推送")
                 return False
 
@@ -1341,6 +1274,11 @@ class NewsAnalyzer:
             if new_items_list:
                 print(f"[RSS] 检测到 {len(new_items_list)} 条新增")
 
+        # 2.1 统计展示排除（避免高产 feed 刷屏）
+        exclude_ids = set(self.ctx.config.get("RSS", {}).get("EXCLUDE_FEED_IDS_FROM_STATS", []) or [])
+        if exclude_ids and new_items_list:
+            new_items_list = [it for it in new_items_list if (it.get("feed_id") or "").strip() not in exclude_ids]
+
         # 3. 根据模式获取统计条目
         if self.report_mode == "incremental":
             # 增量模式：统计条目就是新增条目
@@ -1563,6 +1501,64 @@ class NewsAnalyzer:
         - 每次运行都生成 HTML 报告（时间戳快照 + latest/{mode}.html + index.html）
         - 根据模式发送通知
         """
+        # 论文专区：发酵遴选 + 单篇解读链接推送（不走热榜/关键词统计链路）
+        if self.report_mode == "paper_zone":
+            cfg = self.ctx.config
+            paper_cfg = cfg.get("PAPER_ZONE", {}) or {}
+            if not paper_cfg.get("ENABLED", False):
+                print("[论文专区] 未启用，跳过")
+                return None
+
+            try:
+                from trendradar.analysis.papers import run_fermented_paper_zone
+                from pathlib import Path
+
+                now = self.ctx.get_time()
+                project_root = str(Path(__file__).resolve().parents[1])
+
+                paper_reports = run_fermented_paper_zone(
+                    storage_manager=self.storage_manager,
+                    paper_zone_cfg=paper_cfg,
+                    ai_config=cfg.get("AI", {}),
+                    now=now,
+                    project_root=project_root,
+                )
+
+                if not paper_reports:
+                    print("[论文专区] 本次无新入选论文，跳过推送")
+                    return None
+
+                # 构造只含论文专区的推送内容
+                report_data = self.ctx.prepare_report(
+                    stats=[],
+                    failed_ids=[],
+                    new_titles={},
+                    id_to_name={},
+                    mode="incremental",
+                )
+                report_data["papers"] = paper_reports
+
+                dispatcher = self.ctx.create_notification_dispatcher()
+                dispatcher.dispatch_all(
+                    report_data=report_data,
+                    report_type=mode_strategy["report_type"],
+                    update_info=self.update_info if cfg.get("SHOW_VERSION_UPDATE", False) else None,
+                    proxy_url=self.proxy_url,
+                    mode="daily",
+                    html_file_path=None,
+                    rss_items=None,
+                    rss_new_items=None,
+                    ai_analysis=None,
+                    standalone_data=None,
+                )
+
+                return None
+            except Exception as e:
+                print(f"[论文专区] 执行失败: {type(e).__name__}: {e}")
+                if self.ctx.config.get("DEBUG", False):
+                    raise
+                return None
+
         # 获取当前监控平台ID列表
         current_platform_ids = self.ctx.platform_ids
 
@@ -1745,8 +1741,12 @@ class NewsAnalyzer:
 
             mode_strategy = self._get_mode_strategy()
 
-            # 抓取热榜数据
-            results, id_to_name, failed_ids = self._crawl_data()
+            # paper_zone：只需要 RSS 入库 + 发酵遴选，不抓热榜（避免无关消耗与刷屏）
+            if self.report_mode == "paper_zone":
+                results, id_to_name, failed_ids = {}, {}, []
+            else:
+                # 抓取热榜数据
+                results, id_to_name, failed_ids = self._crawl_data()
 
             # 抓取 RSS 数据（如果启用），返回统计条目、新增条目和原始条目
             rss_items, rss_new_items, raw_rss_items = self._crawl_rss_data()

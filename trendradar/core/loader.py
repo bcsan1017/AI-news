@@ -183,6 +183,7 @@ def _load_rss_config(config_data: Dict) -> Dict:
         "USE_PROXY": advanced_rss.get("use_proxy", False),
         "PROXY_URL": rss_proxy_url,
         "FEEDS": rss.get("feeds", []),
+        "EXCLUDE_FEED_IDS_FROM_STATS": rss.get("exclude_feed_ids_from_stats", []) or [],
         "FRESHNESS_FILTER": {
             "ENABLED": freshness_filter.get("enabled", True),  # 默认启用
             "MAX_AGE_DAYS": max_age_days,
@@ -373,6 +374,12 @@ def _load_paper_zone_config(config_data: Dict) -> Dict:
     return {
         "ENABLED": enabled_env if enabled_env is not None else paper_cfg.get("enabled", False),
         "FEED_IDS": feed_ids,
+        "MODE": _get_env_str("PAPER_ZONE_MODE") or paper_cfg.get("mode", "fermented"),
+        "LOOKBACK_DAYS": _get_env_int("PAPER_ZONE_LOOKBACK_DAYS") or paper_cfg.get("lookback_days", 14),
+        "MIN_AGE_DAYS": _get_env_int("PAPER_ZONE_MIN_AGE_DAYS") or paper_cfg.get("min_age_days", 3),
+        "MAX_PRESENT_PER_RUN": _get_env_int("PAPER_ZONE_MAX_PRESENT_PER_RUN") or paper_cfg.get("max_present_per_run", 5),
+        "PROVIDER": _get_env_str("PAPER_ZONE_PROVIDER") or paper_cfg.get("provider", "openalex_search"),
+        "DEDUPE": _get_env_bool("PAPER_ZONE_DEDUPE") if _get_env_bool("PAPER_ZONE_DEDUPE") is not None else paper_cfg.get("dedupe", True),
         "MAX_REPORTS_PER_RUN": _get_env_int("PAPER_ZONE_MAX_REPORTS_PER_RUN") or paper_cfg.get("max_reports_per_run", 3),
         "MIN_SCORE": _get_env_int("PAPER_ZONE_MIN_SCORE") or paper_cfg.get("min_score", 70),
         "OUTPUT_DIR": _get_env_str("PAPER_ZONE_OUTPUT_DIR") or paper_cfg.get("output_dir", "site"),

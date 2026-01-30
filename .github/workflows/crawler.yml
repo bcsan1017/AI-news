@@ -181,8 +181,7 @@ jobs:
           AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
           AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
           # 论文专区（使用配置文件启用；这里额外显式指定模型，便于排查）
-          PAPER_ZONE_ENABLED: "true"
-          PAPER_ZONE_MODEL: "gemini-3-pro-preview"
+          PAPER_ZONE_ENABLED: "false"
           # 远程存储配置
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}

@@ -73,6 +73,15 @@ platforms:
 rss:
   enabled: true                       # 是否启用 RSS 抓取
 
+  # RSS 关键词统计展示的排除列表（避免某些高产 feed 在推送中刷屏）
+  # 说明：被排除的 feed 仍会抓取并入库，也可被论文专区等功能使用。
+  exclude_feed_ids_from_stats:
+    - "arxiv-cs-ai"
+    - "arxiv-cs-lg"
+    - "arxiv-cs-cl"
+    - "arxiv-cs-cv"
+    - "arxiv-cs-hc"
+
   # 文章新鲜度过滤配置（全局默认值）
   # 过滤掉发布时间超过指定天数的旧文章，避免同一篇文章重复出现在推送中
   #
@@ -675,6 +684,19 @@ ai_translation:
 
 paper_zone:
   enabled: true
+  # 模式：
+  # - fermented：发酵遴选（默认，不追当天新增；在一段时间窗内用客观信号挑选）
+  mode: "fermented"
+  # 发酵窗口（天）：从过去 lookback_days 内挑选
+  lookback_days: 14
+  # 最小发酵天数：发布后至少 N 天才进入遴选（避免“刚发”无客观信号）
+  min_age_days: 3
+  # 每次最多呈现/生成多少篇（控制输出与成本）
+  max_present_per_run: 5
+  # 客观信号提供方：openalex_search（用标题+日期匹配 OpenAlex）
+  provider: "openalex_search"
+  # 去重：同一论文一旦入选并生成报告，后续不重复推送
+  dedupe: true
   # 论文专区覆盖的 feed_id 列表（来自 rss.feeds）
   feed_ids:
     - "arxiv-cs-ai"
@@ -684,8 +706,9 @@ paper_zone:
     - "arxiv-cs-hc"
 
   # 每次运行最多生成多少篇“单篇解读报告”（控制成本关键项）
+  # 注意：fermented 模式下实际使用 max_present_per_run
   max_reports_per_run: 3
-  # 0-100，论文“高价值”阈值（建议 70 起）
+  # 0-100，论文“高价值”阈值（LLM 复核阈值）
   min_score: 70
 
   # 产物输出目录（用于 GitHub Pages 发布）

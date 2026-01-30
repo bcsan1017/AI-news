@@ -2,7 +2,7 @@ name: Deploy GitHub Pages (site/)
 
 on:
   workflow_run:
-    workflows: ["Get Hot News"]
+    workflows: ["Get Hot News", "Paper Zone"]
     types: [completed]
   workflow_dispatch:
 
