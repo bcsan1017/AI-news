@@ -732,7 +732,7 @@ def _write_papers_index(papers_dir: Path, reports: List[Dict[str, Any]], now: da
     <div class="meta">更新时间：{_html.escape(now.strftime("%Y-%m-%d %H:%M:%S"))}</div>
     <p class="meta">说明：此页面列出近期由 TrendRadar 自动生成的论文解读报告（单篇）。</p>
     <ul>
-      {''.join(items) if items else '<li class=\"meta\">暂无报告</li>'}
+      {''.join(items) if items else '<li class="meta">暂无报告</li>'}
     </ul>
     <hr/>
     <div class="meta">Base URL：{_html.escape(base_url) if base_url else '未配置（将以相对链接展示）'}</div>
