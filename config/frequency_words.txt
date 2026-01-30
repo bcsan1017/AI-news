@@ -283,6 +283,8 @@
 # 产品落地最硬的信号：认证、出货、备货、代工、渠道、价格
 /FCC|CE认证|CE marking|SRRC|入网许可|认证通过/ => 认证信号
 /mass production|量产|出货|shipments?|备货|交付|preorder|预售|开售/ => 量产出货
-/BOM|bill of materials|成本|cost down|良率|yield|代工|ODM|OEM/ => 供应链成本
-/price|售价|定价|价格|渠道|零售|retail|operator|运营商/ => 商业化信号
+# ⚠️ 这里的“成本/渠道/价格”很容易误伤社会新闻，必须加上更强的上下文约束
+/BOM|bill of materials|cost down|良率|yield|代工|ODM|OEM|供应链|产线|工厂|试产|投产/ => 供应链成本
+/售价|定价|价格|零售|retail|operator|运营商|经销商|分销|门店|铺货/ => 商业化信号
++/可穿戴|耳机|手表|手环|戒指|眼镜|AR|VR|XR|AirPods|Apple Watch|Garmin|WHOOP|Rokid|XREAL|RayNeo|Meta/ => 必须为可穿戴上下文
 

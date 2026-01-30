@@ -142,7 +142,8 @@ jobs:
           # 推送前质量闸门：用 gemini-3-flash-preview 快速复筛粗筛结果
           QUALITY_GATE_ENABLED: "true"
           QUALITY_GATE_MODEL: "gemini-3-flash-preview"
-          QUALITY_GATE_MIN_SCORE: "60"
+          # 更严格：避免社会新闻/纯消费折扣混入
+          QUALITY_GATE_MIN_SCORE: "78"
           # 0 = 尽量全量复筛（更全面）
           QUALITY_GATE_MAX_ITEMS: "0"
           # 分批评估，避免单次输入过长
