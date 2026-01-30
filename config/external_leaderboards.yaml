@@ -1,0 +1,78 @@
+# coding=utf-8
+# 外部权威榜单配置（用于每周周报“热度/流行度排行榜”）
+#
+# 设计目标：
+# - 不再用我们自己的标题命中统计来做“热度榜”（避免口径争议）
+# - 使用外部、可审计的数据源：OpenRouter（真实使用量）、LMArena（Arena-Hard-Auto 基准分）、PyPI/NPM 下载量（开发者采用度）
+#
+# 注意：
+# - 这是“榜单展示配置”，不是“爬虫/采集配置”。周报生成时会按需拉取这些公共数据源。
+# - 若某个数据源请求失败，将跳过该分榜，不阻塞周报生成。
+#
+# 可通过环境变量覆盖：
+# - WEEKLY_LEADERBOARD_TOP_N: 覆盖 top_n
+# - WEEKLY_EXTERNAL_LEADERBOARD_ENABLED: true/false（总开关）
+# - WEEKLY_LEADERBOARD_SOURCE: external/internal（默认 external）
+#
+external_leaderboards:
+  # 默认 Top N（可被 WEEKLY_LEADERBOARD_TOP_N 覆盖）
+  top_n: 10
+
+  models:
+    openrouter:
+      enabled: true
+      # OpenRouter 未提供公开稳定的 rankings JSON API，这里按其公开页面内容解析。
+      # 口径：Token usage（B tokens 等）+ share（%）
+      url_models: "https://openrouter.ai/rankings"
+      # 可选：Top Apps（公开 opt-in 追踪的应用榜）
+      include_apps: true
+      url_apps: "https://openrouter.ai/rankings/apps"
+
+    lmarena:
+      enabled: true
+      # 由于 LMArena 官网条款限制自动化抓取，这里使用其在 HuggingFace Space 公开发布的 CSV（可审计/可复现）
+      # 口径：Arena-Hard-Auto 分数（不是人类投票 Elo；但为 LMArena 研究团队发布的权威基准）
+      arena_hard_auto_csv: "https://huggingface.co/spaces/lmarena-ai/lmarena-leaderboard/resolve/main/arena_hard_auto_leaderboard_v0.1.csv?download=true"
+
+  tools:
+    # “开发者采用度”口径：最近一周下载量（pypistats last_week / npm last-week）
+    pypi:
+      enabled: true
+      packages:
+        - id: litellm
+          name: LiteLLM
+          package: litellm
+        - id: langchain
+          name: LangChain
+          package: langchain
+        - id: langgraph
+          name: LangGraph
+          package: langgraph
+        - id: llama_index
+          name: LlamaIndex
+          package: llama-index
+        - id: vllm
+          name: vLLM
+          package: vllm
+        - id: transformers
+          name: Transformers
+          package: transformers
+        - id: openai_py
+          name: OpenAI (Python SDK)
+          package: openai
+
+    npm:
+      enabled: true
+      packages:
+        - id: openai_js
+          name: OpenAI (JS SDK)
+          package: openai
+        - id: langchain_js
+          name: LangChain.js
+          package: langchain
+        - id: vercel_ai_sdk
+          name: Vercel AI SDK
+          package: ai
+        - id: llamaindex_js
+          name: LlamaIndex TS
+          package: llamaindex

@@ -211,3 +211,78 @@
 /Neuromorphic|神经拟态|Spiking Neural Network|脉冲神经网络/ => 类脑计算(低功耗方向)
 
 
+
+# ═══════════════════════════════════════════════════════════════
+#                    🕶️ AI可穿戴竞品与SOTA动态 (核心关注)
+# ═══════════════════════════════════════════════════════════════
+#
+# 目标：
+# - 把“产品动作”（发布/量产/价格/渠道/生态）从热闹里拎出来
+# - 把“可穿戴可用性跃迁”（端侧、多模态、交互、功耗）从 PR 里拆成可验证信号
+#
+
+[AI眼镜_竞品]
+# 海外主线：Meta / Snap / Google / Apple 生态
+/Ray-Ban Meta|Meta.*Smart Glasses|Meta.*Glasses|Meta AI.*Glasses/ => Meta智能眼镜
+/Snap Spectacles|Spectacles.*AR|Spectacles.*AI/ => SnapSpectacles
+/Android XR|Google.*AR.*glasses|Google.*smart glasses/ => AndroidXR_眼镜
+/Apple.*glasses|Apple.*AR.*glasses/ => AppleAR_眼镜(传闻)
+
+# 国内主线：AR 眼镜与 AI 眼镜厂商/品牌（按出现频率持续迭代）
+/XREAL|Nreal/ => XREAL
+/Rokid/ => Rokid
+/RayNeo|雷鸟(创新)?/ => RayNeo_雷鸟
+/INMO|影目/ => INMO_影目
+/华为.*眼镜|Huawei.*Glasses/ => 华为智能眼镜
+/小米.*眼镜|Xiaomi.*Glasses/ => 小米眼镜
+@20
+
+[AI眼镜_关键技术]
+# 光学与显示
+/waveguide|光波导|birdbath|自由曲面|pancake/ => 光学方案
+/MicroLED|micro-LED|µLED|Micro OLED|micro-OLED|OLED microdisplay|微显示/ => 微显示
+
+# 交互与感知
+/SLAM|inside-out tracking|六自由度|6DoF|3DoF/ => 空间定位
+/IMU|惯导|gyroscope|accelerometer/ => IMU
+/eye tracking|眼动|gaze/ => 眼动交互
+/hand tracking|手势|gesture/ => 手势交互
+
+# 端侧与系统
+/on-device|端侧|edge AI|NPU|推理加速/ => 端侧推理
+/Qualcomm|Snapdragon XR|XR2|AR1/ => 高通XR芯片
+
+[可穿戴_智能戒指与腕上]
+# 智能戒指（更聚焦“产品落地/量产/健康指标”）
+/Oura|Oura Ring/ => Oura
+/Galaxy Ring|Samsung.*Ring/ => GalaxyRing
+/RingConn/ => RingConn
+/Ultrahuman Ring/ => Ultrahuman
+/Amazfit.*Ring|Zepp.*Ring/ => AmazfitRing
+@15
+
+# 腕上/腕带（只盯“AI能力+健康核心指标+产品动作”）
+/Apple Watch|watchOS/ => AppleWatch
+/Garmin/ => Garmin
+/WHOOP/ => WHOOP
+/Huawei Watch|鸿蒙.*手表|HarmonyOS.*Watch/ => 华为手表
+/小米手环|Xiaomi.*Band/ => 小米手环
+/HRV|心率变异性|ECG|心电|血氧|SpO2|体温|temperature sensor|睡眠评分/ => 健康指标
+@20
+
+[可穿戴_耳机与听觉入口]
+# 目标：抓“AI耳机/实时翻译/主动降噪/多麦阵列/语音助手入口”的产品级更新
+/AirPods|Apple.*earbuds/ => AirPods
+/FreeBuds|Huawei.*earbuds/ => 华为FreeBuds
+/Bose.*earbuds|Sony.*earbuds|WF-\d+/ => 耳机头部厂商
+/real-time translation|实时翻译|同传|live translate/ => 耳机翻译能力
+/ANC|主动降噪|noise cancellation|spatial audio|空间音频/ => 体验指标
+@20
+
+[可穿戴_量产与合规信号]
+# 产品落地最硬的信号：认证、出货、备货、代工、渠道、价格
+/FCC|CE认证|CE marking|SRRC|入网许可|认证通过/ => 认证信号
+/mass production|量产|出货|shipments?|备货|交付|preorder|预售|开售/ => 量产出货
+/BOM|bill of materials|成本|cost down|良率|yield|代工|ODM|OEM/ => 供应链成本
+/price|售价|定价|价格|渠道|零售|retail|operator|运营商/ => 商业化信号
+

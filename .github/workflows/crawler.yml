@@ -135,6 +135,14 @@ jobs:
       - name: Run crawler
         if: success()
         env:
+          # 混合节奏：高频增量预警（此 workflow）
+          REPORT_MODE: incremental
+          AI_ANALYSIS_ENABLED: "false"
+          PUSH_WINDOW_ENABLED: "true"
+          PUSH_WINDOW_START: "08:00"
+          PUSH_WINDOW_END: "23:00"
+          PUSH_WINDOW_ONCE_PER_DAY: "false"
+
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -154,11 +162,12 @@ jobs:
           # 通用Webhook配置
           GENERIC_WEBHOOK_URL: ${{ secrets.GENERIC_WEBHOOK_URL }}
           GENERIC_WEBHOOK_TEMPLATE: ${{ secrets.GENERIC_WEBHOOK_TEMPLATE }}
+          # X（Twitter）官方 API（用于 x://username 源）
+          X_BEARER_TOKEN: ${{ secrets.X_BEARER_TOKEN }}
           # AI 配置（ai_analysis 和 ai_translation 共享模型配置）
-          AI_ANALYSIS_ENABLED: ${{ secrets.AI_ANALYSIS_ENABLED }}
-          AI_API_KEY: ${{ secrets.AI_API_KEY }}
-          AI_MODEL: ${{ secrets.AI_MODEL }}
-          AI_API_BASE: ${{ secrets.AI_API_BASE }}
+          AI_API_KEY: ${{ secrets.AI_API_KEY || secrets.GEMINI_API_KEY }}
+          AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
+          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
           # 远程存储配置
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}

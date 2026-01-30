@@ -38,6 +38,8 @@ class AIClient:
         self.timeout = config.get("TIMEOUT", 120)
         self.num_retries = config.get("NUM_RETRIES", 2)
         self.fallback_models = config.get("FALLBACK_MODELS", [])
+        # 透传给 LiteLLM 的额外参数（Gemini thinking / reasoning_effort 等）
+        self.extra_params = config.get("EXTRA_PARAMS", {}) or {}
 
     def chat(
         self,
@@ -66,6 +68,12 @@ class AIClient:
             "num_retries": kwargs.get("num_retries", self.num_retries),
         }
 
+        # 先注入配置里的额外参数（允许被 kwargs 覆盖）
+        # 例：reasoning_effort / thinking / response_format / topK 等
+        for key, value in self.extra_params.items():
+            if key not in params:
+                params[key] = value
+
         # 添加 API Key
         if self.api_key:
             params["api_key"] = self.api_key
@@ -83,10 +91,11 @@ class AIClient:
         if self.fallback_models:
             params["fallbacks"] = self.fallback_models
 
-        # 合并其他额外参数
+        # 合并其他额外参数（允许覆盖 extra_params / 默认值）
         for key, value in kwargs.items():
-            if key not in params:
-                params[key] = value
+            if key in ("model", "messages"):
+                continue
+            params[key] = value
 
         # 调用 LiteLLM
         response = completion(**params)
@@ -107,8 +116,8 @@ class AIClient:
         if not self.api_key:
             return False, "未配置 AI API Key，请在 config.yaml 或环境变量 AI_API_KEY 中设置"
 
-        # 验证模型格式（应该包含 provider/model）
-        if "/" not in self.model:
-            return False, f"模型格式错误: {self.model}，应为 'provider/model' 格式（如 'deepseek/deepseek-chat'）"
+        # 兼容 LiteLLM Proxy 的“模型别名”（可能没有 provider 前缀）
+        # 例如：gemini-2.5-flash / gpt-5 等
+        # 若你直连提供商（非 proxy），建议使用 provider/model 形式（如 gemini/gemini-2.5-flash）
 
         return True, ""

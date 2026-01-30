@@ -99,6 +99,127 @@ rss:
       name: "阮一峰的网络日志"
       url: "http://www.ruanyifeng.com/blog/atom.xml"
       # max_age_days: 7               # 示例：推送7天内的文章（更新较慢的博客）
+
+    # =============================================================
+    # 可穿戴/AI眼镜/ARVR 资讯（第一层：RSS）
+    # =============================================================
+    - id: "theverge-full"
+      name: "The Verge (Full)"
+      url: "https://www.theverge.com/rss/full.xml"
+      max_age_days: 3
+      enabled: true
+
+    - id: "engadget"
+      name: "Engadget"
+      url: "https://www.engadget.com/rss.xml"
+      max_age_days: 3
+      enabled: true
+
+    - id: "roadtovr"
+      name: "Road to VR"
+      url: "https://www.roadtovr.com/feed/"
+      max_age_days: 7
+      enabled: true
+
+    - id: "9to5google"
+      name: "9to5Google"
+      url: "https://9to5google.com/feed/"
+      max_age_days: 3
+      enabled: true
+
+    - id: "9to5mac"
+      name: "9to5Mac"
+      url: "https://9to5mac.com/feed/"
+      max_age_days: 3
+      enabled: true
+
+    # =============================================================
+    # 社区弱信号（第一层：RSS）
+    # =============================================================
+    - id: "reddit-wearables"
+      name: "Reddit /r/wearables"
+      url: "https://www.reddit.com/r/wearables/.rss"
+      max_age_days: 3
+      enabled: true
+
+    - id: "reddit-augmentedreality"
+      name: "Reddit /r/augmentedreality"
+      url: "https://www.reddit.com/r/augmentedreality/.rss"
+      max_age_days: 3
+      enabled: true
+
+    - id: "reddit-smartglasses"
+      name: "Reddit /r/smartglasses"
+      url: "https://www.reddit.com/r/smartglasses/.rss"
+      max_age_days: 3
+      enabled: true
+
+    # =============================================================
+    # 前沿研究（第一层：RSS）
+    # =============================================================
+    - id: "arxiv-cs-ai"
+      name: "arXiv cs.AI"
+      url: "https://export.arxiv.org/rss/cs.AI"
+      max_age_days: 7
+      enabled: true
+
+    # =============================================================
+    # 播客（第一层：RSS）
+    #
+    # 说明：
+    # - 大多数播客“节目订阅地址”本身就是 RSS（通常以 .xml 结尾）
+    # - 你把节目 RSS URL 填到 url 即可纳入抓取、去重与分析
+    # =============================================================
+    - id: "podcast-latent-space"
+      name: "Latent Space (swyx & Alessio)"
+      url: "https://feeds.flightcast.com/vgnxzgiwwzwke85ym53fjnzu.xml"
+      max_age_days: 30
+      max_items: 30
+      enabled: true
+
+    - id: "podcast-lex-fridman"
+      name: "Lex Fridman Podcast"
+      url: "https://lexfridman.com/feed/podcast/"
+      max_age_days: 30
+      max_items: 30
+      enabled: true
+
+    - id: "podcast-acquired"
+      name: "Acquired"
+      url: "https://feeds.transistor.fm/acquired"
+      max_age_days: 60
+      max_items: 30
+      enabled: true
+
+    - id: "podcast-luanfanshu"
+      name: "乱翻书（潘乱）"
+      url: "https://feed.xyzfm.space/yxuruh3f9mc4"
+      max_age_days: 60
+      max_items: 50
+      enabled: true
+
+    - id: "podcast-onboard"
+      name: "OnBoard!"
+      url: "https://feed.xyzfm.space/xxg7ryklkkft"
+      max_age_days: 60
+      max_items: 50
+      enabled: true
+
+    # =============================================================
+    # 第二层：X（Twitter）账号跟踪（官方 API，通过 x://username 协议接入）
+    #
+    # 使用方法：
+    # - url 写成 x://<username>（不需要 @）
+    # - bearer_token 可写在这里，或通过环境变量 X_BEARER_TOKEN 提供
+    # - ⚠️ 默认禁用，请你填好 token 与账号后再启用
+    # =============================================================
+    - id: "x-bcsimida"
+      name: "X @BCsimida"
+      url: "x://BCsimida"
+      bearer_token: ""              # 建议放环境变量：X_BEARER_TOKEN（GitHub Actions: secrets.X_BEARER_TOKEN）
+      max_items: 30
+      max_age_days: 7
+      enabled: true
     
     - id: "yahoo-finance"
       name: "雅虎财经"
@@ -165,11 +286,11 @@ display:
   #   1. 在此列表中
   #   2. 下方 regions 中对应开关为 true
   region_order:
-    - new_items                       # 1️⃣ 新增热点区域
-    - hotlist                         # 2️⃣ 热榜区域（关键词匹配）
-    - rss                             # 3️⃣ RSS 订阅区域
-    - standalone                      # 4️⃣ 独立展示区
-    - ai_analysis                     # 5️⃣ AI 分析区域
+    - ai_analysis                     # 1️⃣ AI 分析区域（放在最前，便于先看结论）
+    - new_items                       # 2️⃣ 新增热点区域
+    - hotlist                         # 3️⃣ 热榜区域（关键词匹配）
+    - rss                             # 4️⃣ RSS 订阅区域
+    - standalone                      # 5️⃣ 独立展示区
 
   # 推送区域开关
   # 控制各区域是否启用（配合 region_order 使用）
@@ -178,7 +299,7 @@ display:
     new_items: true                   # 新增热点区域（含热榜新增 + RSS 新增）
                                       # 注：热点词汇统计中的新增标记🆕不受此配置影响
 
-    rss: false                         # RSS 订阅区域
+    rss: true                         # RSS 订阅区域
                                       # 开启后将对 RSS 进行关键词分析并在通知中展示
                                       # 关闭后跳过分析，但独立展示区不受影响
 
@@ -438,7 +559,7 @@ ai_analysis:
                                       # GitHub Action 部署默认推送约 20 次（每小时推送一次）， 约 0.1 元/天
                                       # Docker 部署默认推送 48 次(每半小时推送一次)， 约 0.2 元/天
 
-  include_rss: false                 # 是否包含 RSS 内容进行分析
+  include_rss: true                 # 是否包含 RSS 内容进行分析
 
   include_rank_timeline: true      # 是否传递完整排名时间线
                                     # false: 使用简化格式（排名范围+时间范围+出现次数）

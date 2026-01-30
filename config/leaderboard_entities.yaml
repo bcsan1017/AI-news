@@ -1,0 +1,294 @@
+version: 1
+
+# 说明：
+# - 本文件用于“每周周报”的热度排行榜统计（仅热榜：output/news/*.db）
+# - patterns 支持两种写法：
+#   1) 子串：直接写字符串（大小写不敏感）
+#   2) 正则：用 /.../ 包裹（Python re，默认 IGNORECASE）
+# - 同一条标题可命中多个条目；命中后会累计「提及次数」与「热度分」并记录样本标题
+
+categories:
+  # =============================================================
+  # 模型（LLM / 多模态 / 语音）
+  # =============================================================
+  - id: models_llm
+    name: 模型（LLM）
+    items:
+      - id: gemini
+        name: Gemini
+        patterns:
+          - gemini
+          - /gemini[-\s]?(?:3|2\.5|2\.0)/i
+          - /google\s+gemini/i
+
+      - id: gpt
+        name: GPT（OpenAI）
+        patterns:
+          - /gpt[-\s]?(?:4\.1|4o|4|5|3\.5)/i
+          - /openai\s+(?:gpt|o1|o3|o4)/i
+          - /o1|o3|o4/i
+
+      - id: claude
+        name: Claude（Anthropic）
+        patterns:
+          - claude
+          - /anthropic/i
+          - /sonnet|haiku|opus/i
+
+      - id: deepseek
+        name: DeepSeek
+        patterns:
+          - deepseek
+          - /deep\s*seek/i
+
+      - id: qwen
+        name: Qwen（通义千问）
+        patterns:
+          - qwen
+          - /通义千问|千问/i
+          - /alibaba\s+qwen/i
+
+      - id: llama
+        name: Llama（Meta）
+        patterns:
+          - llama
+          - /llama[-\s]?(?:2|3|4)/i
+          - /meta\s+llama/i
+
+      - id: mistral
+        name: Mistral
+        patterns:
+          - mistral
+
+      - id: grok
+        name: Grok（xAI）
+        patterns:
+          - grok
+          - /xai/i
+
+      - id: kimi
+        name: Kimi（月之暗面）
+        patterns:
+          - kimi
+          - /月之暗面|moonshot/i
+
+      - id: doubao
+        name: 豆包（字节）
+        patterns:
+          - /豆包/i
+          - /doubao/i
+
+  - id: models_multimodal
+    name: 模型（多模态）
+    items:
+      - id: vision
+        name: Vision / VLM
+        patterns:
+          - /multimodal|multi[-\s]?modal/i
+          - /vision[-\s]?language|vlm/i
+          - /image[-\s]?to[-\s]?text|text[-\s]?to[-\s]?image/i
+
+      - id: sora
+        name: Sora（视频生成）
+        patterns:
+          - sora
+          - /text[-\s]?to[-\s]?video/i
+
+      - id: runway
+        name: Runway
+        patterns:
+          - runway
+
+      - id: kling
+        name: 可灵（视频生成）
+        patterns:
+          - /可灵/i
+          - /kling/i
+
+  - id: models_speech
+    name: 模型（语音）
+    items:
+      - id: asr
+        name: ASR / Speech-to-Text
+        patterns:
+          - /asr|speech[-\s]?to[-\s]?text|stt/i
+          - /语音识别|转写/i
+
+      - id: tts
+        name: TTS / Text-to-Speech
+        patterns:
+          - /tts|text[-\s]?to[-\s]?speech/i
+          - /语音合成|配音/i
+
+      - id: realtime_voice
+        name: Realtime Voice
+        patterns:
+          - /realtime\s+voice|voice\s+agent/i
+          - /实时语音/i
+
+  # =============================================================
+  # 框架/技能（Agent / RAG / Eval / Serving）
+  # =============================================================
+  - id: frameworks_agent
+    name: 框架/技能（Agent）
+    items:
+      - id: agents_generic
+        name: Agent / AI Agent
+        patterns:
+          - /ai\s+agent|agents?\b/i
+          - /agentic/i
+          - /workflow\s+agent/i
+
+      - id: langchain
+        name: LangChain
+        patterns:
+          - langchain
+
+      - id: langgraph
+        name: LangGraph
+        patterns:
+          - langgraph
+
+      - id: llamaindex
+        name: LlamaIndex
+        patterns:
+          - llamaindex
+          - /llama\s*index/i
+
+      - id: pydanticai
+        name: PydanticAI
+        patterns:
+          - pydanticai
+          - /pydantic\s*ai/i
+
+      - id: crewai
+        name: CrewAI
+        patterns:
+          - crewai
+          - /crew\s*ai/i
+
+      - id: autogen
+        name: AutoGen
+        patterns:
+          - autogen
+
+      - id: smolagents
+        name: smolagents
+        patterns:
+          - smolagents
+
+  - id: frameworks_rag
+    name: 框架/技能（RAG）
+    items:
+      - id: rag
+        name: RAG
+        patterns:
+          - /\brag\b/i
+          - /retrieval[-\s]?augmented/i
+          - /向量数据库|向量检索|embedding/i
+
+      - id: vector_db
+        name: 向量数据库
+        patterns:
+          - /milvus|qdrant|pinecone|weaviate|chroma/i
+
+  - id: frameworks_eval
+    name: 框架/技能（Eval）
+    items:
+      - id: eval
+        name: Evals / Benchmark
+        patterns:
+          - /evals?|benchmark/i
+          - /arena/i
+          - /评测|基准测试/i
+
+      - id: openai_evals
+        name: OpenAI Evals
+        patterns:
+          - /openai\s+evals/i
+
+  - id: frameworks_serving
+    name: 框架/技能（Serving）
+    items:
+      - id: litellm
+        name: LiteLLM
+        patterns:
+          - litellm
+
+      - id: vllm
+        name: vLLM
+        patterns:
+          - /\bvllm\b/i
+
+      - id: ollama
+        name: Ollama
+        patterns:
+          - ollama
+
+      - id: openrouter
+        name: OpenRouter
+        patterns:
+          - openrouter
+
+      - id: vertexai
+        name: Vertex AI
+        patterns:
+          - /vertex\s*ai/i
+
+  # =============================================================
+  # 产品工具（IDE / PM / Workflow）
+  # =============================================================
+  - id: product_ide
+    name: 产品工具（IDE）
+    items:
+      - id: cursor
+        name: Cursor
+        patterns:
+          - cursor
+
+      - id: vscode
+        name: VS Code
+        patterns:
+          - /vs\s*code|vscode/i
+
+      - id: github_copilot
+        name: GitHub Copilot
+        patterns:
+          - copilot
+
+  - id: product_pm
+    name: 产品工具（PM）
+    items:
+      - id: notion
+        name: Notion
+        patterns:
+          - notion
+
+      - id: jira
+        name: Jira
+        patterns:
+          - jira
+
+      - id: linear
+        name: Linear
+        patterns:
+          - /\blinear\b/i
+
+  - id: product_workflow
+    name: 产品工具（Workflow）
+    items:
+      - id: zapier
+        name: Zapier
+        patterns:
+          - zapier
+
+      - id: n8n
+        name: n8n
+        patterns:
+          - /\bn8n\b/i
+
+      - id: make
+        name: Make（Integromat）
+        patterns:
+          - /\bmake\.com\b/i
+          - integromat

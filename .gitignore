@@ -1,0 +1,25 @@
+# Python
+**/__pycache__/
+*.py[cod]
+*.pyo
+*.pyd
+
+# Virtualenv
+.venv/
+venv/
+ENV/
+
+# Local outputs / generated artifacts
+output/
+
+# OS / IDE
+.DS_Store
+.idea/
+.vscode/
+
+# Logs
+*.log
+
+# Secrets
+.env
+docker/.env

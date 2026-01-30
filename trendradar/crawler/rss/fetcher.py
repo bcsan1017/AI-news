@@ -7,6 +7,7 @@ RSS 抓取器
 
 import time
 import random
+import os
 from dataclasses import dataclass
 from datetime import datetime
 from typing import List, Dict, Optional, Tuple, Callable
@@ -24,6 +25,7 @@ class RSSFeedConfig:
     id: str                     # 源 ID
     name: str                   # 显示名称
     url: str                    # RSS URL
+    bearer_token: Optional[str] = None  # 可选：用于需要鉴权的源（如 x:// 用户源）
     max_items: int = 0          # 最大条目数（0=不限制）
     enabled: bool = True        # 是否启用
     max_age_days: Optional[int] = None  # 文章最大年龄（天），覆盖全局设置；None=使用全局，0=禁用过滤
@@ -138,6 +140,10 @@ class RSSFetcher:
             (条目列表, 错误信息) 元组
         """
         try:
+            # 支持自定义协议：x://username（通过 X 官方 API 拉取该用户的最新推文并按 RSSItem 入库）
+            if feed.url.startswith("x://"):
+                return self._fetch_x_user_feed(feed)
+
             response = self.session.get(feed.url, timeout=self.timeout)
             response.raise_for_status()
 
@@ -188,6 +194,159 @@ class RSSFetcher:
             print(f"[RSS] {feed.name}: {error}")
             return [], error
 
+        except Exception as e:
+            error = f"未知错误: {e}"
+            print(f"[RSS] {feed.name}: {error}")
+            return [], error
+
+    def _get_x_bearer_token(self, feed: RSSFeedConfig) -> Optional[str]:
+        """
+        获取 X API Bearer Token
+
+        优先级：
+        1) feed.bearer_token（配置文件单 feed）
+        2) 环境变量 X_BEARER_TOKEN
+        3) 环境变量 TWITTER_BEARER_TOKEN
+        """
+        token = (feed.bearer_token or "").strip() if feed.bearer_token else ""
+        if token:
+            return token
+        token = (os.environ.get("X_BEARER_TOKEN", "") or "").strip()
+        if token:
+            return token
+        token = (os.environ.get("TWITTER_BEARER_TOKEN", "") or "").strip()
+        return token or None
+
+    def _x_api_get(self, token: str, path: str, params: Optional[Dict] = None) -> requests.Response:
+        """
+        调用 X/Twitter API（兼容 api.x.com 与 api.twitter.com）
+        """
+        headers = {"Authorization": f"Bearer {token}"}
+        params = params or {}
+
+        # 优先尝试 api.x.com，失败后回退到 api.twitter.com（尽量提高可用性）
+        base_urls = ["https://api.x.com", "https://api.twitter.com"]
+        last_exc: Optional[Exception] = None
+        for base in base_urls:
+            try:
+                url = f"{base}{path}"
+                resp = self.session.get(url, headers=headers, params=params, timeout=self.timeout)
+                return resp
+            except requests.RequestException as e:
+                last_exc = e
+                continue
+        # 理论上不会到这里；兜底抛出最后一个异常
+        raise last_exc or RuntimeError("X API 请求失败")
+
+    def _fetch_x_user_feed(self, feed: RSSFeedConfig) -> Tuple[List[RSSItem], Optional[str]]:
+        """
+        抓取 X 用户源：x://username
+        将推文转换为 RSSItem，复用现有 RSS 入库/去重/分析链路。
+        """
+        try:
+            token = self._get_x_bearer_token(feed)
+            if not token:
+                error = "缺少 X API Bearer Token（请在该 feed 配置 bearer_token 或设置环境变量 X_BEARER_TOKEN）"
+                print(f"[RSS] {feed.name}: {error}")
+                return [], error
+
+            # 解析 username
+            username = feed.url[len("x://") :].strip().lstrip("@").strip()
+            if not username:
+                error = "x:// 协议缺少用户名（示例：x://elonmusk）"
+                print(f"[RSS] {feed.name}: {error}")
+                return [], error
+
+            # 1) 先通过用户名获取用户 ID
+            user_resp = self._x_api_get(
+                token=token,
+                path=f"/2/users/by/username/{username}",
+                params={"user.fields": "username,name"},
+            )
+            if user_resp.status_code == 429:
+                error = "X API 限流（HTTP 429）"
+                print(f"[RSS] {feed.name}: {error}")
+                return [], error
+            user_resp.raise_for_status()
+            user_json = user_resp.json() if user_resp.content else {}
+            user_data = user_json.get("data") or {}
+            user_id = user_data.get("id")
+            if not user_id:
+                error = f"无法解析用户ID（username={username}）"
+                print(f"[RSS] {feed.name}: {error}")
+                return [], error
+
+            # 2) 拉取该用户最新推文
+            max_items = feed.max_items if feed.max_items and feed.max_items > 0 else 20
+            max_items = max(5, min(int(max_items), 100))
+
+            tweets_resp = self._x_api_get(
+                token=token,
+                path=f"/2/users/{user_id}/tweets",
+                params={
+                    "max_results": str(max_items),
+                    "tweet.fields": "created_at,lang",
+                    "exclude": "replies,retweets",
+                },
+            )
+            if tweets_resp.status_code == 429:
+                error = "X API 限流（HTTP 429）"
+                print(f"[RSS] {feed.name}: {error}")
+                return [], error
+            tweets_resp.raise_for_status()
+            tweets_json = tweets_resp.json() if tweets_resp.content else {}
+            tweets = tweets_json.get("data") or []
+
+            now = get_configured_time(self.timezone)
+            crawl_time = now.strftime("%H:%M")
+
+            items: List[RSSItem] = []
+            for t in tweets:
+                tweet_id = (t.get("id") or "").strip()
+                text = (t.get("text") or "").strip()
+                if not tweet_id or not text:
+                    continue
+
+                # published_at：尽量转换 Z -> +00:00，保证后续 is_within_days 可解析
+                created_at = (t.get("created_at") or "").strip()
+                if created_at.endswith("Z"):
+                    created_at = created_at.replace("Z", "+00:00")
+
+                url = f"https://x.com/{username}/status/{tweet_id}"
+                title = text
+                if len(title) > 120:
+                    title = title[:120] + "..."
+
+                item = RSSItem(
+                    title=title,
+                    feed_id=feed.id,
+                    feed_name=feed.name,
+                    url=url,
+                    published_at=created_at,
+                    summary=text,
+                    author=f"@{username}",
+                    crawl_time=crawl_time,
+                    first_time=crawl_time,
+                    last_time=crawl_time,
+                    count=1,
+                )
+                items.append(item)
+
+            print(f"[RSS] {feed.name}: 获取 {len(items)} 条（X 用户 @{username}）")
+            return items, None
+
+        except requests.Timeout:
+            error = f"请求超时 ({self.timeout}s)"
+            print(f"[RSS] {feed.name}: {error}")
+            return [], error
+        except requests.RequestException as e:
+            error = f"请求失败: {e}"
+            print(f"[RSS] {feed.name}: {error}")
+            return [], error
+        except ValueError as e:
+            error = f"解析失败: {e}"
+            print(f"[RSS] {feed.name}: {error}")
+            return [], error
         except Exception as e:
             error = f"未知错误: {e}"
             print(f"[RSS] {feed.name}: {error}")
@@ -286,6 +445,7 @@ class RSSFetcher:
                 id=feed_config.get("id", ""),
                 name=feed_config.get("name", ""),
                 url=feed_config.get("url", ""),
+                bearer_token=feed_config.get("bearer_token"),
                 max_items=feed_config.get("max_items", 0),  # 0=不限制
                 enabled=feed_config.get("enabled", True),
                 max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖

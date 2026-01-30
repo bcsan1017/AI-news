@@ -1088,6 +1088,7 @@ class NewsAnalyzer:
                     id=feed_config.get("id", ""),
                     name=feed_config.get("name", ""),
                     url=feed_config.get("url", ""),
+                    bearer_token=feed_config.get("bearer_token"),
                     max_items=feed_config.get("max_items", 50),
                     enabled=feed_config.get("enabled", True),
                     max_age_days=max_age_days,  # None=使用全局，0=禁用，>0=覆盖

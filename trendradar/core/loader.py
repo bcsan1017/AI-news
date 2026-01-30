@@ -6,6 +6,7 @@
 """
 
 import os
+import json
 from pathlib import Path
 from typing import Dict, Any, Optional
 
@@ -80,11 +81,18 @@ def _load_report_config(config_data: Dict) -> Dict:
     report_config = config_data.get("report", {})
 
     # 环境变量覆盖
+    report_mode_env = _get_env_str("REPORT_MODE")
     sort_by_position_env = _get_env_bool("SORT_BY_POSITION_FIRST")
     max_news_env = _get_env_int("MAX_NEWS_PER_KEYWORD")
 
+    # 报告模式：允许用环境变量覆盖，方便在 GitHub Actions / Docker 做“增量预警 vs 日报”等多套节奏
+    report_mode = report_mode_env or report_config.get("mode", "daily")
+    if report_mode not in ("daily", "current", "incremental"):
+        print(f"[警告] REPORT_MODE='{report_mode}' 无效，将使用默认值 'daily'")
+        report_mode = "daily"
+
     return {
-        "REPORT_MODE": report_config.get("mode", "daily"),
+        "REPORT_MODE": report_mode,
         "DISPLAY_MODE": report_config.get("display_mode", "keyword"),
         "RANK_THRESHOLD": report_config.get("rank_threshold", 10),
         "SORT_BY_POSITION_FIRST": sort_by_position_env if sort_by_position_env is not None else report_config.get("sort_by_position_first", False),
@@ -223,11 +231,40 @@ def _load_ai_config(config_data: Dict) -> Dict:
 
     timeout_env = _get_env_int_or_none("AI_TIMEOUT")
 
+    # 额外参数：支持用环境变量为不同调度场景（daily / incremental 等）设置
+    # - AI_REASONING_EFFORT: OpenAI 标准参数（LiteLLM 会映射到 Gemini thinking）
+    # - AI_THINKING_BUDGET_TOKENS: LiteLLM thinking 参数（budget_tokens）
+    # - AI_EXTRA_PARAMS / AI_EXTRA_PARAMS_JSON: 任意 JSON 字典透传给 LiteLLM
+    extra_params: Dict[str, Any] = dict(ai_config.get("extra_params", {}) or {})
+
+    extra_params_env_raw = _get_env_str("AI_EXTRA_PARAMS_JSON") or _get_env_str("AI_EXTRA_PARAMS")
+    if extra_params_env_raw:
+        try:
+            parsed = json.loads(extra_params_env_raw)
+            if isinstance(parsed, dict):
+                extra_params.update(parsed)
+            else:
+                print("[警告] AI_EXTRA_PARAMS 解析结果不是 JSON 对象，将忽略")
+        except Exception as e:
+            print(f"[警告] AI_EXTRA_PARAMS 解析失败，将忽略。错误: {type(e).__name__}: {e}")
+
+    reasoning_effort_env = _get_env_str("AI_REASONING_EFFORT")
+    if reasoning_effort_env:
+        extra_params["reasoning_effort"] = reasoning_effort_env
+
+    thinking_budget_env = _get_env_int_or_none("AI_THINKING_BUDGET_TOKENS")
+    if thinking_budget_env is None:
+        # 兼容命名：与部分文档写法一致（thinking_budget）
+        thinking_budget_env = _get_env_int_or_none("AI_THINKING_BUDGET")
+    if thinking_budget_env is not None:
+        # LiteLLM 约定：thinking={"type":"enabled","budget_tokens":...}
+        extra_params["thinking"] = {"type": "enabled", "budget_tokens": thinking_budget_env}
+
     return {
         # LiteLLM 核心配置
-        "MODEL": _get_env_str("AI_MODEL") or ai_config.get("model", "deepseek/deepseek-chat"),
-        "API_KEY": _get_env_str("AI_API_KEY") or ai_config.get("api_key", ""),
-        "API_BASE": _get_env_str("AI_API_BASE") or ai_config.get("api_base", ""),
+        "MODEL": _get_env_str("AI_MODEL") or _get_env_str("GEMINI_MODEL") or ai_config.get("model", "deepseek/deepseek-chat"),
+        "API_KEY": _get_env_str("AI_API_KEY") or _get_env_str("GEMINI_API_KEY") or ai_config.get("api_key", ""),
+        "API_BASE": _get_env_str("AI_API_BASE") or _get_env_str("GEMINI_BASE_URL") or _get_env_str("GEMINI_API_BASE") or ai_config.get("api_base", ""),
 
         # 生成参数
         "TIMEOUT": timeout_env if timeout_env is not None else ai_config.get("timeout", 120),
@@ -237,7 +274,7 @@ def _load_ai_config(config_data: Dict) -> Dict:
         # LiteLLM 高级选项
         "NUM_RETRIES": ai_config.get("num_retries", 2),
         "FALLBACK_MODELS": ai_config.get("fallback_models", []),
-        "EXTRA_PARAMS": ai_config.get("extra_params", {}),
+        "EXTRA_PARAMS": extra_params,
     }
 
 
@@ -247,14 +284,20 @@ def _load_ai_analysis_config(config_data: Dict) -> Dict:
     analysis_window = ai_config.get("analysis_window", {})
 
     enabled_env = _get_env_bool("AI_ANALYSIS_ENABLED")
+    mode_env = _get_env_str("AI_ANALYSIS_MODE")
     window_enabled_env = _get_env_bool("AI_ANALYSIS_WINDOW_ENABLED")
     window_once_per_day_env = _get_env_bool("AI_ANALYSIS_WINDOW_ONCE_PER_DAY")
+
+    ai_mode = mode_env or ai_config.get("mode", "follow_report")
+    if ai_mode not in ("follow_report", "daily", "current", "incremental"):
+        print(f"[警告] AI_ANALYSIS_MODE='{ai_mode}' 无效，将使用默认值 'follow_report'")
+        ai_mode = "follow_report"
 
     return {
         "ENABLED": enabled_env if enabled_env is not None else ai_config.get("enabled", False),
         "LANGUAGE": ai_config.get("language", "Chinese"),
         "PROMPT_FILE": ai_config.get("prompt_file", "ai_analysis_prompt.txt"),
-        "MODE": ai_config.get("mode", "follow_report"),
+        "MODE": ai_mode,
         "MAX_NEWS_FOR_ANALYSIS": ai_config.get("max_news_for_analysis", 50),
         "INCLUDE_RSS": ai_config.get("include_rss", True),
         "INCLUDE_RANK_TIMELINE": ai_config.get("include_rank_timeline", False),
