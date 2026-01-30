@@ -28,8 +28,18 @@
 #   /赌博|博彩/       用 /.../ 包裹可以匹配多个词（用 | 分隔）
 
 [GLOBAL_FILTER]
-# 过滤标题党
-震惊
+# ─── 情绪与标题党过滤 ───
+# 过滤掉试图通过恐惧或夸大来吸引点击的内容
+/震惊|吓人|突发|刚刚|彻底|不再是|凉了|大结局|这下/
+/哭晕|跪了|炸裂|变天|深夜|重磅|史诗级|恐怖如斯/
+
+# ─── 营销与低质内容过滤 ───
+# 过滤掉“利用AI赚钱”的低质教程，PM需要看的是产品逻辑，不是微商教程
+/搞钱|变现|日入|月入|暴富|翻身|躺赚|红利|普通人/
+/带货|实操|保姆级|教程|小白|速成|如果不看|必须知道/
+
+# ─── 股市与非产品噪音 ───
+/涨停|跌停|概念股|大涨|大跌|资金流向|行情|推荐股票/
 
 
 
@@ -150,109 +160,54 @@
 [WORD_GROUPS]
 
 # ═══════════════════════════════════════════════════════════════
-#                         企业与品牌
+#                    🎙️ AI会议与听觉智能 (垂直赛道)
 # ═══════════════════════════════════════════════════════════════
 
-/胖东来|于东来/ => 胖东来
+[会议AI竞品]
+# 现在的会议AI之王，重点看他们如何做“会后总结”和“搜索”
+/Otter\.ai|Fireflies\.ai|Gong\.io|Limitless|Rewind/ => 会议AI独角兽
+# 大厂的动作，看 Microsoft 365 Copilot 和 Zoom IQ 的功能更新
+/Zoom.*AI|Teams.*Copilot|腾讯会议.*AI|飞书.*妙记|钉钉.*闪记/ => 大厂会议AI
+# 致力于解决“我刚才说了什么”的记忆类产品，这是可穿戴设备的直接软件竞品
+/Granola|Supernormal|Krisp/
 
-/深度求索|幻方量化|梁文锋|\bDeepSeek\b/ => DeepSeek
+[听觉技术栈]
+# 核心技术词：不仅仅是语音转文字，更是理解“谁在说”
+/Speaker Diarization|说话人分离|声纹识别/
+/ASR|Speech-to-Text|语音转写|STT/
+# 能够处理超长会议记录的模型技术
+/Long Context|长上下文|1M Context|100k Context/
+# 语音活动检测，决定了设备什么时候开始听
+/VAD|Voice Activity Detection/
+# OpenAI 的 Whisper 是目前的基准线
+/Whisper.*v3|Deepgram|AssemblyAI/
 
-/华为|任正非|余承东|鸿蒙|海思|昇腾|鲲鹏|\bHUAWEI\b|\bHarmonyOS\b|\bHiSilicon\b/ => 华为
-
-/比亚迪|王传福|方程豹|腾势|仰望|弗迪|刀片电池|云辇|\bBYD\b|\bDenza\b|\bYangwang\b/ => 比亚迪
-
-/大疆|汪滔|灵眸|如影|\bDJI\b|\bRoboMaster\b|\bMavic\b|\bZenmuse\b/ => 大疆
-
-/宇树|王兴兴|\bUnitree\b/ => 宇树机器人
-
-/智元|灵犀|稚晖君|彭志辉|AgiBot/ => 智元机器人
-/众擎|EngineAI|赵同阳/ => 众擎机器人
-
-/黑神话|冯骥/ => 黑神话悟空
-
-/影之刃零|梁其伟/ => 影之刃零
-
-/三体|流浪地球|刘慈欣|郭帆/ => 三体/流浪地球
-
-申奥
-
-/京东|刘强东|\bJD\b|\bJingdong\b/ => 京东
-
-/字节|张一鸣|梁汝波|抖音|\bByteDance\b|\bTikTok\b|\bDouyin\b|\bLark\b|\bCapCut\b/ => 字节跳动
-
-/腾讯|鹅厂|马化腾|微信|QQ|天美|阅文集团|微众银行|\bTencent\b|\bPony Ma\b|\bWeChat\b|\bLightSpeed\b|\bWeBank\b/ => 腾讯
-
-/qwen|minimax|glm/ => 国产开源模型
-
-/特斯拉|马斯克|\bTesla\b|\bElon Musk\b|\bCybertruck\b|\bModel 3\b|\bModel Y\b|\bModel S\b|\bModel X\b|\bFSD\b/ => 特斯拉
-
-/英伟达|黄仁勋|\bNVIDIA\b|\bGeForce\b|\bRTX\b|\bCUDA\b|\bJensen Huang\b/ => 英伟达
-/苏姿丰|锐龙|霄龙|\bAMD\b|\bRyzen\b|\bEPYC\b|\bRadeon\b|\bLisa Su\b/ => AMD
-
-/微软|\bMicrosoft\b|\bWindows\b|\bAzure\b|\bSatya Nadella\b|\bCopilot\b/ => 微软
-/谷歌|皮查伊|安卓|油管|\bGoogle\b|\bAlphabet\b|\bAndroid\b|\bChrome\b|\bYouTube\b|\bGemini\b|\bDeepMind\b|\bWaymo\b/ => 谷歌
-/库克|\biPhone\b|\biPad\b|\bMacBook\b|\biOS\b|\bVision Pro\b|\bAirPods\b|\bApple\b|\bTim Cook\b/ => 苹果
-
-/\bOpenAI\b|\bChatGPT\b|\bSora\b|\bDALL-E\b|\bSam Altman\b|\bGreg Brockman\b/ => OpenAI
-/\bAnthropic\b|\bClaude\b|\bDario Amodei\b/ => Claude
+[办公生产力]
+# 关注 AI 如何提取“代办事项”，这是从 Chat 到 Work 的关键
+/Action Items|Meeting Notes|会议纪要|待办提取/
+/Summarization|摘要生成|关键点提取/
 
 
 # ═══════════════════════════════════════════════════════════════
-#                         国家与地区
+#                    🔭 行业拐点与认知拓展 (Big Picture)
 # ═══════════════════════════════════════════════════════════════
 
-[中国]
-国产
-中国
+[技术范式转移]
+# 当你看到这些词，意味着底层逻辑可能变了，必须点进去看
+/SOTA|State-of-the-Art|Benchmark|基准测试/ => 技术突破
+# 关注 Transformer 之外的新架构（如 Mamba, SSM），这可能解决可穿戴设备的能耗问题
+/Mamba|SSM|State Space Model|RWKV|Jepa|World Model|世界模型/ => 新架构
+# 真正具备逻辑推理能力的研究（System 2）
+/Reasoning|CoT|Chain of Thought|思维链|推理能力/
+# 多模态是可穿戴的未来（看懂视频、听懂声音）
+/Multimodal|Omni|Native Multimodal|原生多模态/
 
-[东亚]
-日本
-朝鲜
-韩国
-
-[北美]
-美国
-加拿大
-
-[西欧]
-法国
-英国
-
-/俄罗斯|俄国/ => 俄罗斯
-
-印度
+[深度认知源头]
+# 屏蔽掉公众号的二手解读，关注一手信息源
+/Hugging Face|Paper Explained|Arxiv|Github Trending/
+# 知名研究机构的动向
+/DeepMind|Google Research|FAIR|Meta AI Research|Microsoft Research/
+# 能够改变世界的具体技术点
+/Neuromorphic|神经拟态|Spiking Neural Network|脉冲神经网络/ => 类脑计算(低功耗方向)
 
 
-# ═══════════════════════════════════════════════════════════════
-#                         科技领域
-# ═══════════════════════════════════════════════════════════════
-
-[AI 相关]
-/(?<![a-zA-Z])ai(?![a-zA-Z])/
-人工智能
-
-[芯片]
-芯片
-光刻机
-半导体
-
-/水电|雅鲁藏布江/ => 水电
-/光伏|太阳能/ => 光伏
-核能
-能源
-
-/自动驾驶|无人驾驶|智驾/ => 自动驾驶
-
-机器人
-/机械狗|四足/ => 机器狗
-具身智能
-
-/月球|登月|火星|宇宙|飞船|航天|空间站|卫星/ => 航天
-
-# 前沿科技
-量子
-脑机
-基因
-
-# 产业政策
-生产力
