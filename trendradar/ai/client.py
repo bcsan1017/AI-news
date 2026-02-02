@@ -41,6 +41,13 @@ class AIClient:
         # 透传给 LiteLLM 的额外参数（Gemini thinking / reasoning_effort 等）
         self.extra_params = config.get("EXTRA_PARAMS", {}) or {}
 
+        # 兼容 LiteLLM Proxy（OpenAI 兼容协议）常见用法：
+        # - 当你配置了自定义 api_base（例如 litellm proxy / openai-compatible gateway）
+        # - 且 model 只是一个“别名”（不带 provider 前缀）
+        # 让 LiteLLM 显式走 openai provider，避免误判走其他 provider（如 vertex）触发缺依赖/鉴权问题。
+        if self.api_base and self.model and "/" not in self.model:
+            self.model = f"openai/{self.model}"
+
     def chat(
         self,
         messages: List[Dict[str, str]],
@@ -96,6 +103,11 @@ class AIClient:
             if key in ("model", "messages"):
                 continue
             params[key] = value
+
+        # 更鲁棒：丢弃当前 provider 不支持的参数（如 openai provider 下的 reasoning_effort）
+        # 避免出现 UnsupportedParamsError 直接导致 AI 分析/质量闸门失败。
+        if "drop_params" not in params:
+            params["drop_params"] = True
 
         # 调用 LiteLLM
         response = completion(**params)

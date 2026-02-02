@@ -162,7 +162,8 @@ def load_frequency_words(
                 if line.startswith(("!", "+", "@")):
                     continue  # 全局过滤区不支持特殊语法
                 if line:
-                    global_filters.append(line)
+                    # 允许 /.../ 正则（与词组/过滤词一致），否则容易出现“以为过滤了但没生效”的情况
+                    global_filters.append(_parse_word(line))
             continue
 
         # 处理词组区域
@@ -244,7 +245,7 @@ def matches_word_groups(
     title: str,
     word_groups: List[Dict],
     filter_words: List,
-    global_filters: Optional[List[str]] = None
+    global_filters: Optional[List] = None
 ) -> bool:
     """
     检查标题是否匹配词组规则
@@ -268,8 +269,9 @@ def matches_word_groups(
 
     # 全局过滤检查（优先级最高）
     if global_filters:
-        if any(global_word.lower() in title_lower for global_word in global_filters):
-            return False
+        for global_item in global_filters:
+            if _word_matches(global_item, title_lower):
+                return False
 
     # 如果没有配置词组，则匹配所有标题（支持显示全部新闻）
     if not word_groups:
