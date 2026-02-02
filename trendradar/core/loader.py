@@ -338,6 +338,7 @@ def _load_quality_gate_config(config_data: Dict) -> Dict:
     model_env = _get_env_str("QUALITY_GATE_MODEL")
 
     debug_env = _get_env_bool("QUALITY_GATE_DEBUG")
+    use_content_env = _get_env_bool("QUALITY_GATE_USE_CONTENT")
 
     return {
         "ENABLED": enabled_env if enabled_env is not None else gate_config.get("enabled", False),
@@ -354,6 +355,13 @@ def _load_quality_gate_config(config_data: Dict) -> Dict:
         "MAX_TOKENS": _get_env_int("QUALITY_GATE_MAX_TOKENS") or gate_config.get("max_tokens", 900),
         # Gemini/LiteLLM：推理强度（建议 low，省钱/更快）
         "REASONING_EFFORT": _get_env_str("QUALITY_GATE_REASONING_EFFORT") or gate_config.get("reasoning_effort", "low"),
+        # 复筛更鲁棒：尝试抓取正文片段再判断（失败自动降级到标题）
+        "USE_CONTENT": use_content_env if use_content_env is not None else gate_config.get("use_content", False),
+        "CONTENT_FETCH_TIMEOUT": _get_env_int("QUALITY_GATE_CONTENT_FETCH_TIMEOUT") or gate_config.get("content_fetch_timeout", 10),
+        "CONTENT_FETCH_CONCURRENCY": _get_env_int("QUALITY_GATE_CONTENT_FETCH_CONCURRENCY") or gate_config.get("content_fetch_concurrency", 6),
+        "MAX_CONTENT_CHARS": _get_env_int("QUALITY_GATE_MAX_CONTENT_CHARS") or gate_config.get("max_content_chars", 4000),
+        # 每条新闻下方的“精华更新点”提示词文件（位于 config/ 目录）
+        "BRIEF_PROMPT_FILE": _get_env_str("QUALITY_GATE_BRIEF_PROMPT_FILE") or gate_config.get("brief_prompt_file", "quality_gate_brief_prompt.txt"),
         "DEBUG": debug_env if debug_env is not None else gate_config.get("debug", False),
     }
 

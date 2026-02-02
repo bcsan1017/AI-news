@@ -68,7 +68,8 @@ jobs:
           # AI 模型配置（兼容你当前的 GEMINI_* secrets 命名）
           AI_API_KEY: ${{ secrets.AI_API_KEY || secrets.GEMINI_API_KEY }}
           AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
-          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-pro-preview' }}
+          # 强制走 OpenAI 兼容协议（避免 LiteLLM 误走 Vertex 导致缺依赖）
+          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'openai/gemini-3-pro-preview' }}
           AI_REASONING_EFFORT: "high"
 
           # 远程存储配置

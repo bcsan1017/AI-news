@@ -38,6 +38,10 @@
 /搞钱|变现|日入|月入|暴富|翻身|躺赚|红利|普通人/
 /带货|实操|保姆级|教程|小白|速成|如果不看|必须知道/
 
+# ─── 线上娱乐噪音过滤 ───
+# 典型误伤：手势交互/gesture 词组会把“手势舞”类内容捞进来
+/手势舞/
+
 # ─── 股市与非产品噪音 ───
 /涨停|跌停|概念股|大涨|大跌|资金流向|行情|推荐股票/
 
@@ -276,7 +280,8 @@
 /FreeBuds|Huawei.*earbuds/ => 华为FreeBuds
 /Bose.*earbuds|Sony.*earbuds|WF-\d+/ => 耳机头部厂商
 /real-time translation|实时翻译|同传|live translate/ => 耳机翻译能力
-/ANC|主动降噪|noise cancellation|spatial audio|空间音频/ => 体验指标
+# ⚠️ ANC 是高误匹配短词：会误命中 San Fr**anc**isco 等英文片段，必须用单词边界
+/\bANC\b|主动降噪|noise cancellation|spatial audio|空间音频/ => 体验指标
 @20
 
 [可穿戴_量产与合规信号]

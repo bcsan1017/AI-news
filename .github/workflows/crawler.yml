@@ -141,7 +141,8 @@ jobs:
           AI_ANALYSIS_ENABLED: "false"
           # 推送前质量闸门：用 gemini-3-flash-preview 快速复筛粗筛结果
           QUALITY_GATE_ENABLED: "true"
-          QUALITY_GATE_MODEL: "gemini-3-flash-preview"
+          # 强制走 OpenAI 兼容协议（避免 LiteLLM 误走 Vertex 导致缺依赖）
+          QUALITY_GATE_MODEL: "openai/gemini-3-flash-preview"
           # 更严格：避免社会新闻/纯消费折扣混入
           QUALITY_GATE_MIN_SCORE: "78"
           # 0 = 尽量全量复筛（更全面）
@@ -150,6 +151,12 @@ jobs:
           QUALITY_GATE_BATCH_SIZE: "40"
           QUALITY_GATE_TIMEOUT: "30"
           QUALITY_GATE_REASONING_EFFORT: "low"
+          # 复筛更鲁棒：尝试抓取正文摘要再判断（失败自动降级到标题）
+          QUALITY_GATE_USE_CONTENT: "true"
+          QUALITY_GATE_CONTENT_FETCH_TIMEOUT: "10"
+          QUALITY_GATE_MAX_CONTENT_CHARS: "4000"
+          # 每条新闻下方的“精华更新点”（可在 config/ 下自行改提示词）
+          QUALITY_GATE_BRIEF_PROMPT_FILE: "quality_gate_brief_prompt.txt"
           PUSH_WINDOW_ENABLED: "true"
           PUSH_WINDOW_START: "10:00"
           PUSH_WINDOW_END: "23:00"
@@ -180,7 +187,8 @@ jobs:
           # AI 配置（ai_analysis 和 ai_translation 共享模型配置）
           AI_API_KEY: ${{ secrets.AI_API_KEY || secrets.GEMINI_API_KEY }}
           AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
-          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
+          # 强制走 OpenAI 兼容协议（避免 LiteLLM 误走 Vertex 导致缺依赖）
+          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'openai/gemini-3-flash-preview' }}
           # 论文专区（使用配置文件启用；这里额外显式指定模型，便于排查）
           PAPER_ZONE_ENABLED: "false"
           # 远程存储配置

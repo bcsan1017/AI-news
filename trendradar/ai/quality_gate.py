@@ -16,7 +16,9 @@ AI 质量闸门（推送前快速复筛）
 from __future__ import annotations
 
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from dataclasses import dataclass
+from pathlib import Path
 from typing import Any, Dict, List, Optional, Tuple
 
 
@@ -89,6 +91,27 @@ class AIQualityGate:
         self.reasoning_effort = (self.gate_config.get("REASONING_EFFORT") or "low").strip()
         self.debug = bool(self.gate_config.get("DEBUG", False))
 
+        # 更鲁棒：读取正文片段后再做复筛/总结（失败自动降级到标题）
+        self.use_content = bool(self.gate_config.get("USE_CONTENT", False))
+        self.content_fetch_timeout = int(self.gate_config.get("CONTENT_FETCH_TIMEOUT", 10) or 10)
+        self.content_fetch_concurrency = int(self.gate_config.get("CONTENT_FETCH_CONCURRENCY", 6) or 6)
+        self.max_content_chars = int(self.gate_config.get("MAX_CONTENT_CHARS", 4000) or 4000)
+
+        # 每条新闻下方的“精华更新点”提示词（允许用户在 config/ 中自行修改）
+        self.brief_prompt_file = (self.gate_config.get("BRIEF_PROMPT_FILE") or "quality_gate_brief_prompt.txt").strip()
+        self.brief_prompt_text = self._load_brief_prompt(self.brief_prompt_file)
+
+    def _load_brief_prompt(self, prompt_file: str) -> str:
+        """从 config/ 目录加载 brief 提示词（不存在则返回空字符串）。"""
+        try:
+            config_dir = Path(__file__).parent.parent.parent / "config"
+            p = config_dir / (prompt_file or "")
+            if p.exists():
+                return p.read_text(encoding="utf-8").strip()
+        except Exception:
+            return ""
+        return ""
+
     def filter_before_send(
         self,
         report_data: Dict[str, Any],
@@ -137,7 +160,7 @@ class AIQualityGate:
                 keep_ids.add(it_id)
 
         filtered_report_data, filtered_rss_items, filtered_rss_new_items = self._apply_kept_ids(
-            report_data, rss_items, rss_new_items, keep_ids, pointers
+            report_data, rss_items, rss_new_items, keep_ids, pointers, decisions
         )
 
         stats.kept_items = len(keep_ids)
@@ -167,6 +190,7 @@ class AIQualityGate:
                 title = (t.get("title") or "").strip()
                 if not title:
                     continue
+                link_url = (t.get("mobileUrl") or t.get("mobile_url") or t.get("url") or "").strip()
                 items.append(
                     {
                         "id": tid,
@@ -174,6 +198,7 @@ class AIQualityGate:
                         "source_name": (t.get("source_name") or "").strip(),
                         "group": group,
                         "section": "hot_stats",
+                        "url": link_url,
                     }
                 )
                 pointers[tid] = {"section": "hot_stats", "gi": gi, "ti": ti}
@@ -186,6 +211,7 @@ class AIQualityGate:
                 title = (t.get("title") or "").strip()
                 if not title:
                     continue
+                link_url = (t.get("mobileUrl") or t.get("mobile_url") or t.get("url") or "").strip()
                 items.append(
                     {
                         "id": tid,
@@ -193,6 +219,7 @@ class AIQualityGate:
                         "source_name": (t.get("source_name") or "").strip(),
                         "group": "",  # new_titles 不一定有 group
                         "section": "hot_new",
+                        "url": link_url,
                     }
                 )
                 pointers[tid] = {"section": "hot_new", "si": si, "ti": ti}
@@ -206,6 +233,7 @@ class AIQualityGate:
                 title = (t.get("title") or "").strip()
                 if not title:
                     continue
+                link_url = (t.get("mobileUrl") or t.get("mobile_url") or t.get("url") or "").strip()
                 items.append(
                     {
                         "id": tid,
@@ -213,6 +241,7 @@ class AIQualityGate:
                         "source_name": (t.get("source_name") or "").strip(),
                         "group": group,
                         "section": "rss_stats",
+                        "url": link_url,
                     }
                 )
                 pointers[tid] = {"section": "rss_stats", "gi": gi, "ti": ti}
@@ -226,6 +255,7 @@ class AIQualityGate:
                 title = (t.get("title") or "").strip()
                 if not title:
                     continue
+                link_url = (t.get("mobileUrl") or t.get("mobile_url") or t.get("url") or "").strip()
                 items.append(
                     {
                         "id": tid,
@@ -233,6 +263,7 @@ class AIQualityGate:
                         "source_name": (t.get("source_name") or "").strip(),
                         "group": group,
                         "section": "rss_new",
+                        "url": link_url,
                     }
                 )
                 pointers[tid] = {"section": "rss_new", "gi": gi, "ti": ti}
@@ -261,7 +292,7 @@ class AIQualityGate:
 
     def _judge_batch(self, items: List[Dict[str, Any]], mode: str) -> Dict[str, Dict[str, Any]]:
         """
-        返回：id -> {keep: bool, score: int, reason?: str}
+        返回：id -> {keep: bool, score: int, reason?: str, brief?: str}
         """
         # 延迟导入，避免在未启用时引入 litellm 依赖
         from trendradar.ai.client import AIClient
@@ -291,9 +322,69 @@ class AIQualityGate:
             "- 86-100：强信号（优先 keep）\n"
         )
 
+        brief_rules = (self.brief_prompt_text or "").strip()
+        if brief_rules:
+            system += "\n\n【精华更新点（brief）输出要求】\n" + brief_rules + "\n"
+        else:
+            system += (
+                "\n\n【精华更新点（brief）输出要求】\n"
+                "- 输出一句中文（最多 40 字），强调“发生了什么变化/意味着什么”。\n"
+                "- 不要复述标题；信息不足时要保守，不要编造。\n"
+            )
+
+        # 可选：抓取正文片段，提高鲁棒性（失败自动降级）
+        if self.use_content:
+            try:
+                from trendradar.utils.content_fetch import fetch_url_text
+            except Exception:
+                fetch_url_text = None
+        else:
+            fetch_url_text = None
+
+        url_to_content: Dict[str, str] = {}
+        if fetch_url_text:
+            urls = [((it.get("url") or "").strip()) for it in items]
+            urls = [u for u in urls if u]
+
+            # 并发抓取，避免 40 条顺序抓取导致超时
+            workers = self.content_fetch_concurrency if self.content_fetch_concurrency and self.content_fetch_concurrency > 0 else 6
+            workers = min(max(workers, 1), 16)
+            if urls and workers > 1:
+                with ThreadPoolExecutor(max_workers=workers) as ex:
+                    futs = {
+                        ex.submit(fetch_url_text, u, self.content_fetch_timeout, self.max_content_chars): u
+                        for u in urls
+                    }
+                    for fut in as_completed(futs):
+                        u = futs[fut]
+                        try:
+                            txt = fut.result()
+                        except Exception:
+                            txt = None
+                        if txt:
+                            url_to_content[u] = txt
+            else:
+                for u in urls:
+                    txt = fetch_url_text(u, timeout=self.content_fetch_timeout, max_chars=self.max_content_chars)
+                    if txt:
+                        url_to_content[u] = txt
+
+        enriched_payload = []
+        for it in items:
+            url = (it.get("url") or "").strip()
+            enriched_payload.append(
+                {
+                    "id": it["id"],
+                    "title": it["title"],
+                    "source": it["source_name"],
+                    "group": it["group"],
+                    "url": url,
+                    "content": url_to_content.get(url, "") if url else "",
+                }
+            )
+
         # 构造批量输入
         # 注意：group 可能包含“可穿戴_量产与合规信号”等，用于识别误命中
-        payload = [{"id": it["id"], "title": it["title"], "source": it["source_name"], "group": it["group"]} for it in items]
         user = (
             "请对以下候选逐条判定是否值得推送。\n"
             f"- 推送模式：{mode}\n\n"
@@ -302,8 +393,9 @@ class AIQualityGate:
             '- "keep": true/false（是否保留推送）\n'
             '- "score": 0-100（价值/相关性评分，越高越值得推送）\n'
             '- "reason": 简短中文原因（不超过 20 字）\n\n'
+            '- "brief": 一句中文精华更新点（最多 40 字）\n\n'
             "只输出 JSON，不要输出额外解释。\n\n"
-            f"输入：{json.dumps(payload, ensure_ascii=False)}"
+            f"输入：{json.dumps(enriched_payload, ensure_ascii=False)}"
         )
 
         if self.debug:
@@ -335,10 +427,17 @@ class AIQualityGate:
             rid = str(row.get("id", "")).strip()
             if not rid:
                 continue
+            brief = str(row.get("brief", "")).strip()
+            if brief:
+                # 轻量截断，避免单条过长影响推送
+                brief = brief.replace("\n", " ").replace("\r", " ").strip()
+                if len(brief) > 80:
+                    brief = brief[:80].rstrip()
             decisions[rid] = {
                 "keep": bool(row.get("keep", False)),
                 "score": int(row.get("score", 0) or 0),
                 "reason": str(row.get("reason", "")).strip(),
+                "brief": brief,
             }
 
         return decisions
@@ -350,6 +449,7 @@ class AIQualityGate:
         rss_new_items: Optional[List[Dict[str, Any]]],
         keep_ids: set,
         pointers: Dict[str, Dict[str, Any]],
+        decisions: Dict[str, Dict[str, Any]],
     ) -> Tuple[Dict[str, Any], Optional[List[Dict[str, Any]]], Optional[List[Dict[str, Any]]]]:
         # 深拷贝不是必须（report_data 在后续只用于推送），但避免副作用更安全
         import copy
@@ -366,6 +466,9 @@ class AIQualityGate:
             for ti, t in enumerate(titles):
                 tid = f"hot_stats:{gi}:{ti}"
                 if tid in keep_ids:
+                    d = decisions.get(tid) or {}
+                    if d.get("brief"):
+                        t["brief"] = d["brief"]
                     kept_titles.append(t)
             if kept_titles:
                 g["titles"] = kept_titles
@@ -381,6 +484,9 @@ class AIQualityGate:
             for ti, t in enumerate(titles):
                 tid = f"hot_new:{si}:{ti}"
                 if tid in keep_ids:
+                    d = decisions.get(tid) or {}
+                    if d.get("brief"):
+                        t["brief"] = d["brief"]
                     kept_titles.append(t)
             if kept_titles:
                 s["titles"] = kept_titles
@@ -397,6 +503,9 @@ class AIQualityGate:
                 for ti, t in enumerate(titles):
                     tid = f"rss_stats:{gi}:{ti}"
                     if tid in keep_ids:
+                        d = decisions.get(tid) or {}
+                        if d.get("brief"):
+                            t["brief"] = d["brief"]
                         kept_titles.append(t)
                 if kept_titles:
                     g["titles"] = kept_titles
@@ -413,6 +522,9 @@ class AIQualityGate:
                 for ti, t in enumerate(titles):
                     tid = f"rss_new:{gi}:{ti}"
                     if tid in keep_ids:
+                        d = decisions.get(tid) or {}
+                        if d.get("brief"):
+                            t["brief"] = d["brief"]
                         kept_titles.append(t)
                 if kept_titles:
                     g["titles"] = kept_titles

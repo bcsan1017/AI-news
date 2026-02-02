@@ -53,6 +53,20 @@ jobs:
           # - Gemini 3 系列无法彻底关闭推理，建议使用 low（更省钱/更快）
           AI_REASONING_EFFORT: "low"
 
+          # 推送前质量闸门：每日简报也做一次“语义复筛 + 精华总结”
+          QUALITY_GATE_ENABLED: "true"
+          # 强制走 OpenAI 兼容协议（避免 LiteLLM 误走 Vertex 导致缺依赖）
+          QUALITY_GATE_MODEL: "openai/gemini-3-flash-preview"
+          QUALITY_GATE_MIN_SCORE: "78"
+          QUALITY_GATE_MAX_ITEMS: "0"
+          QUALITY_GATE_BATCH_SIZE: "40"
+          QUALITY_GATE_TIMEOUT: "30"
+          QUALITY_GATE_REASONING_EFFORT: "low"
+          QUALITY_GATE_USE_CONTENT: "true"
+          QUALITY_GATE_CONTENT_FETCH_TIMEOUT: "10"
+          QUALITY_GATE_MAX_CONTENT_CHARS: "4000"
+          QUALITY_GATE_BRIEF_PROMPT_FILE: "quality_gate_brief_prompt.txt"
+
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
           TELEGRAM_BOT_TOKEN: ${{ secrets.TELEGRAM_BOT_TOKEN }}
           TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
@@ -77,7 +91,8 @@ jobs:
           # AI 模型配置
           AI_API_KEY: ${{ secrets.AI_API_KEY || secrets.GEMINI_API_KEY }}
           AI_API_BASE: ${{ secrets.AI_API_BASE || secrets.GEMINI_BASE_URL }}
-          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'gemini-3-flash-preview' }}
+          # 强制走 OpenAI 兼容协议（避免 LiteLLM 误走 Vertex 导致缺依赖）
+          AI_MODEL: ${{ secrets.AI_MODEL || secrets.GEMINI_MODEL || 'openai/gemini-3-flash-preview' }}
           # 远程存储配置
           S3_BUCKET_NAME: ${{ secrets.S3_BUCKET_NAME }}
           S3_ACCESS_KEY_ID: ${{ secrets.S3_ACCESS_KEY_ID }}

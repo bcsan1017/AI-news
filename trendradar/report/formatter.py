@@ -53,6 +53,7 @@ def format_title_for_platform(
 
     # 获取关键词标签（platform 模式使用）
     keyword = title_data.get("matched_keyword", "") if show_keyword else ""
+    brief = clean_title(title_data.get("brief", "")) if title_data.get("brief") else ""
 
     if platform == "feishu":
         if link_url:
@@ -76,6 +77,9 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" <font color='green'>({title_data['count']}次)</font>"
 
+        if brief:
+            # 用灰字展示精华更新点（保持在同一条新闻下方）
+            result += f"\n    <font color='grey'>↳ {html_escape(brief)}</font>"
         return result
 
     elif platform == "dingtalk":
@@ -100,6 +104,8 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" ({title_data['count']}次)"
 
+        if brief:
+            result += f"\n    > ↳ {brief}"
         return result
 
     elif platform in ("wework", "bark"):
@@ -125,6 +131,8 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" ({title_data['count']}次)"
 
+        if brief:
+            result += f"\n    > ↳ {brief}"
         return result
 
     elif platform == "telegram":
@@ -149,6 +157,8 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" <code>({title_data['count']}次)</code>"
 
+        if brief:
+            result += f"\n    <i>↳ {html_escape(brief)}</i>"
         return result
 
     elif platform == "ntfy":
@@ -173,6 +183,8 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" `({title_data['count']}次)`"
 
+        if brief:
+            result += f"\n    > ↳ {brief}"
         return result
 
     elif platform == "slack":
@@ -203,6 +215,8 @@ def format_title_for_platform(
         if title_data["count"] > 1:
             result += f" `({title_data['count']}次)`"
 
+        if brief:
+            result += f"\n    _↳ {brief}_"
         return result
 
     elif platform == "html":
@@ -241,6 +255,9 @@ def format_title_for_platform(
         if title_data.get("is_new"):
             formatted_title = f"<div class='new-title'>🆕 {formatted_title}</div>"
 
+        if brief:
+            escaped_brief = html_escape(brief)
+            formatted_title += f"<div class='brief' style='color:#666;margin-top:4px;'>↳ {escaped_brief}</div>"
         return formatted_title
 
     else:
