@@ -8,7 +8,8 @@ on:
 
 concurrency:
   group: daily-briefing-${{ github.ref_name }}
-  cancel-in-progress: true
+  # 避免手动触发/重复触发导致前一轮被自动取消（会表现为 "The operation was canceled."）
+  cancel-in-progress: false
 
 permissions:
   contents: read
@@ -16,7 +17,8 @@ permissions:
 jobs:
   daily:
     runs-on: ubuntu-latest
-    timeout-minutes: 15
+    # 质量闸门启用“抓正文 + LLM 复筛”后，极端情况下会更耗时；放宽超时避免被取消
+    timeout-minutes: 30
 
     steps:
       - name: Checkout repository
