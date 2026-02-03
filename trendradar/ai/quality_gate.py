@@ -93,8 +93,11 @@ class AIQualityGate:
 
         # 更鲁棒：读取正文片段后再做复筛/总结（失败自动降级到标题）
         self.use_content = bool(self.gate_config.get("USE_CONTENT", False))
+        # 严格：抓不到可总结筛选的正文片段则直接丢弃（不再标题兜底）
+        self.require_content = bool(self.gate_config.get("REQUIRE_CONTENT", False))
         self.content_fetch_timeout = int(self.gate_config.get("CONTENT_FETCH_TIMEOUT", 10) or 10)
         self.content_fetch_concurrency = int(self.gate_config.get("CONTENT_FETCH_CONCURRENCY", 6) or 6)
+        self.min_content_chars = int(self.gate_config.get("MIN_CONTENT_CHARS", 400) or 400)
         self.max_content_chars = int(self.gate_config.get("MAX_CONTENT_CHARS", 4000) or 4000)
 
         # 每条新闻下方的“精华更新点”提示词（允许用户在 config/ 中自行修改）
@@ -136,8 +139,13 @@ class AIQualityGate:
         if not items:
             return report_data, rss_items, rss_new_items, stats
 
-        # 限制评估数量（其余默认保留，避免“误删且不可解释”）
-        eval_items = items[: self.max_items] if self.max_items > 0 else items
+        # 限制评估数量：
+        # - 默认：其余默认保留，避免“误删且不可解释”
+        # - 严格 require_content：必须全量评估，否则无法判断“是否抓到了可总结内容”
+        if self.require_content and self.max_items > 0:
+            eval_items = items
+        else:
+            eval_items = items[: self.max_items] if self.max_items > 0 else items
         stats.evaluated_items = len(eval_items)
 
         try:
@@ -146,13 +154,18 @@ class AIQualityGate:
             stats.error = f"{type(e).__name__}: {e}"
             return report_data, rss_items, rss_new_items, stats
 
-        # 应用结果（未被评估到的默认保留）
+        # 应用结果
+        # - 默认：未被评估到的默认保留
+        # - 严格 require_content：未评估/抓不到内容的一律不输出
         keep_ids = set()
         for it in items:
             it_id = it["id"]
             d = decisions.get(it_id)
             if d is None:
-                keep_ids.add(it_id)
+                if not self.require_content:
+                    keep_ids.add(it_id)
+                continue
+            if self.require_content and not bool(d.get("has_content", False)):
                 continue
             keep = bool(d.get("keep", False))
             score = int(d.get("score", 0) or 0)
@@ -370,8 +383,15 @@ class AIQualityGate:
                         url_to_content[u] = txt
 
         enriched_payload = []
+        id_to_has_content: Dict[str, bool] = {}
         for it in items:
             url = (it.get("url") or "").strip()
+            content = url_to_content.get(url, "") if url else ""
+            has_content = bool(content) and (len(content) >= self.min_content_chars)
+            # 严格模式下：正文不足视为不可总结/不可筛选
+            if not has_content:
+                content = ""
+            id_to_has_content[str(it.get("id", "")).strip()] = has_content
             enriched_payload.append(
                 {
                     "id": it["id"],
@@ -379,7 +399,7 @@ class AIQualityGate:
                     "source": it["source_name"],
                     "group": it["group"],
                     "url": url,
-                    "content": url_to_content.get(url, "") if url else "",
+                    "content": content,
                 }
             )
 
@@ -438,6 +458,8 @@ class AIQualityGate:
                 "score": int(row.get("score", 0) or 0),
                 "reason": str(row.get("reason", "")).strip(),
                 "brief": brief,
+                # 由本地抓取结果决定（不依赖模型输出）
+                "has_content": bool(id_to_has_content.get(rid, False)),
             }
 
         return decisions

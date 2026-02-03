@@ -65,6 +65,9 @@ jobs:
           QUALITY_GATE_USE_CONTENT: "true"
           QUALITY_GATE_CONTENT_FETCH_TIMEOUT: "10"
           QUALITY_GATE_MAX_CONTENT_CHARS: "4000"
+          # 严格：抓不到可总结筛选的正文片段则直接不输出
+          QUALITY_GATE_REQUIRE_CONTENT: "true"
+          QUALITY_GATE_MIN_CONTENT_CHARS: "400"
           QUALITY_GATE_BRIEF_PROMPT_FILE: "quality_gate_brief_prompt.txt"
 
           FEISHU_WEBHOOK_URL: ${{ secrets.FEISHU_WEBHOOK_URL }}
